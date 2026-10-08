@@ -11,14 +11,25 @@ Eagle Eye™ is an engineering analytics and diagnostic workstation application 
 - **Interactive Telemetry**: Dual-axis zoomable time-series charts for flow rates, differential pressures, temperatures, and pump speeds.
 - **Automated Diagnostics**: Rule-based fault catalog isolating hydraulic imbalances, pump speed saturation, and thermal parity breaches.
 - **Modbus Register Inspector**: Live register address decoding and setpoint verification for industrial automation systems.
-- **Flexible Deployment**: Supports local browser preview, Electron wrapper, and high-performance native desktop packaging via Tauri v2.
+- **Flexible Deployment**: Supports local browser preview and high-performance native desktop packaging via Tauri v2.
+
+---
+
+## Ready-to-Run Standalone Desktop App (For Colleagues)
+
+Pre-built standalone executables are included in the [`EagleEye-Standalone-App/`](./EagleEye-Standalone-App) directory for immediate use without needing Node.js, Rust, or terminal commands:
+
+- **Portable Standalone App**: [`EagleEye-Analyzer.exe`](./EagleEye-Standalone-App/EagleEye-Analyzer.exe) — double-click to launch immediately without installation.
+- **Windows Installer**: [`EagleEye-Analyzer-Installer.msi`](./EagleEye-Standalone-App/EagleEye-Analyzer-Installer.msi)
+- **Windows Setup**: [`EagleEye-Analyzer-Setup.exe`](./EagleEye-Standalone-App/EagleEye-Analyzer-Setup.exe)
+- **Quick Guide**: [`HOW-TO-USE.txt`](./EagleEye-Standalone-App/HOW-TO-USE.txt)
 
 ---
 
 ## Tech Stack
 
 - **Frontend**: React 19, TypeScript, Vite, Chart.js, Lucide Icons
-- **Desktop Shell**: Tauri v2 (Rust backend) / Electron
+- **Desktop Shell**: Tauri v2 (Rust backend)
 - **Data Engine**: SheetJS (XLSX parsing), in-memory tolerance band math
 
 ---

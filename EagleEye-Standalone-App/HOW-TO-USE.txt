@@ -1,0 +1,34 @@
+========================================================================
+ EAGLE EYE(TM) — FACTORY TEST DIAGNOSTICS & TOLERANCE MARGIN ANALYZER
+ Standalone Windows Desktop Application (Tauri 2.0 / Rust)
+========================================================================
+
+WHAT IS IN THIS FOLDER:
+------------------------------------------------------------------------
+1. EagleEye-Analyzer.exe  (PORTABLE STANDALONE EXECUTABLE - ~9.3 MB)
+   - Zero-installation, fully self-contained portable executable.
+   - You can copy this single .exe file to ANY Windows 10/11 machine,
+     put it on a USB flash drive, or email/share it.
+   - Simply double-click `EagleEye-Analyzer.exe` to run immediately!
+   - No Node.js, Python, Electron, or terminal required.
+
+2. EagleEye-Analyzer-Setup.exe  (NSIS WINDOWS INSTALLER - ~2.3 MB)
+   - Standard Windows installer wizard.
+   - Installs the app to Program Files and creates Start Menu and
+     Desktop shortcuts.
+
+3. EagleEye-Analyzer-Installer.msi  (ENTERPRISE MSI INSTALLER - ~3.3 MB)
+   - Standard Windows Installer package for enterprise deployment
+     or IT group policy rollouts.
+
+KEY FEATURES PACKAGED INSIDE:
+------------------------------------------------------------------------
+- Native Rust 2.0 runtime powered by Microsoft WebView2 evergreen runtime.
+- Ultra-lightweight footprint (9.3 MB standalone vs 150+ MB for Electron).
+- Complete offline capability — all UI assets, styles, icons, and sample
+  datasets (SEQ-G659-CD050L and SEQ-G592-CD04XB) are baked directly into
+  the executable binary.
+- Interactive 2D Factory Test matrix, parametric triad analytics (peak,
+  settling, margin buffer), 3-sigma tolerance envelopes, and XLSX export.
+- Standard file upload dialog (Ctrl+O) and instant Excel report generation.
+========================================================================

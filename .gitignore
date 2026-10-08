@@ -12,10 +12,6 @@ build/
 src-tauri/target/
 src-tauri/gen/schemas/
 
-# Standalone application builds & installers
-EagleEye-Standalone-App/
-*.exe
-*.msi
 
 # Folders requested to exclude
 Eagle Eye Source Code/
