@@ -1,0 +1,50 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build outputs
+dist/
+dist-ssr/
+build/
+
+# Tauri & Rust build artifacts
+src-tauri/target/
+src-tauri/gen/schemas/
+
+# Standalone application builds & installers
+EagleEye-Standalone-App/
+*.exe
+*.msi
+
+# Folders requested to exclude
+Eagle Eye Source Code/
+docs/
+
+# Sample data & test runs
+sample_data.js
+sample_data.json
+*.xlsx
+*.log
+terminal_log.txt
+EXCEL_FORMULA_AUDIT_NOTE.txt
+
+# Python scripts and cache
+__pycache__/
+*.pyc
+*.py
+
+
+# Environment & IDE
+.env
+.env.local
+.env.*.local
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+Thumbs.db
+.DS_Store
