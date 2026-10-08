@@ -21,6 +21,9 @@ docs/
 sample_data.js
 sample_data.json
 *.xlsx
+!public/*.xlsx
+!public/sample_data.json
+!public/sample_data.js
 *.log
 terminal_log.txt
 EXCEL_FORMULA_AUDIT_NOTE.txt
