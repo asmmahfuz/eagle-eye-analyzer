@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { CadMainView, SubsystemCategory, SUBSYSTEM_LABELS } from '../../types';
+import { CduModelId } from '../../engine/models/modelTypes';
+import { CadModelSelector } from './CadModelSelector';
 import {
   FileSpreadsheet,
   FolderOpen,
@@ -59,6 +61,10 @@ interface CadTopMenuBarProps {
   onZoomReset?: () => void;
   hasDataset?: boolean;
   onLoadSample?: (name?: string) => void;
+  activeModelId?: CduModelId;
+  onSelectModel?: (modelId: CduModelId) => void;
+  detectedModelId?: CduModelId;
+  onOpenLiveTest?: () => void;
 }
 
 export const CadTopMenuBar: React.FC<CadTopMenuBarProps> = ({
@@ -89,7 +95,11 @@ export const CadTopMenuBar: React.FC<CadTopMenuBarProps> = ({
   onZoomOut,
   onZoomReset,
   hasDataset,
-  onLoadSample
+  onLoadSample,
+  activeModelId = 'CHx2000',
+  onSelectModel,
+  detectedModelId,
+  onOpenLiveTest
 }) => {
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const menuBarRef = useRef<HTMLDivElement>(null);
@@ -176,6 +186,16 @@ export const CadTopMenuBar: React.FC<CadTopMenuBarProps> = ({
               >
                 <Play size={11} />
               </button>
+              {onOpenLiveTest && (
+                <button
+                  className="cad-title-icon-btn cad-btn-live text-cyan"
+                  onClick={onOpenLiveTest}
+                  title="Run Live Test-Bench (Excitation Profile) [F5]"
+                  aria-label="Run Live Test-Bench"
+                >
+                  <Play size={11} style={{ fill: '#00d2ff' }} />
+                </button>
+              )}
               <button
                 className="cad-title-icon-btn cad-btn-reset"
                 onClick={onResetView}
@@ -288,6 +308,13 @@ export const CadTopMenuBar: React.FC<CadTopMenuBarProps> = ({
         </div>
 
         <div className="cad-titlebar-right">
+          {onSelectModel && (
+            <CadModelSelector
+              currentModelId={activeModelId}
+              onSelectModel={onSelectModel}
+              detectedModelId={detectedModelId}
+            />
+          )}
           {onToggleTheme && (
             <button
               className="cad-theme-pill-btn"
@@ -330,6 +357,13 @@ export const CadTopMenuBar: React.FC<CadTopMenuBarProps> = ({
                 <button className="cad-dropdown-item" onClick={() => executeAction(() => onLoadSample('SEQ-G659-CD050L.xlsx'))}>
                   <span className="cad-dd-icon"><FileSpreadsheet size={14} /></span>
                   <span className="cad-dd-label">Load Sample (CD050L)...</span>
+                </button>
+              )}
+              {onOpenLiveTest && (
+                <button className="cad-dropdown-item" onClick={() => executeAction(onOpenLiveTest)}>
+                  <span className="cad-dd-icon"><Play size={14} className="text-cyan" /></span>
+                  <span className="cad-dd-label">Run Live Test-Bench (Excitation Profile)...</span>
+                  <span className="cad-dd-shortcut">F5</span>
                 </button>
               )}
               <div className="cad-dd-divider"></div>
@@ -387,6 +421,13 @@ export const CadTopMenuBar: React.FC<CadTopMenuBarProps> = ({
                 <span className="cad-dd-label">Run Full 3-Sigma SPC Audit</span>
                 <span className="cad-dd-shortcut">Ctrl+R</span>
               </button>
+              {onOpenLiveTest && (
+                <button className="cad-dropdown-item" onClick={() => executeAction(onOpenLiveTest)}>
+                  <span className="cad-dd-icon"><Play size={14} className="text-cyan" /></span>
+                  <span className="cad-dd-label">Execute Live Excitation Profile...</span>
+                  <span className="cad-dd-shortcut">F5</span>
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -499,6 +540,13 @@ export const CadTopMenuBar: React.FC<CadTopMenuBarProps> = ({
                 <span className="cad-dd-icon"><Cpu size={14} /></span>
                 <span className="cad-dd-label">Modbus Holding Register Map (Port 502)</span>
               </button>
+              {onOpenLiveTest && (
+                <button className="cad-dropdown-item" onClick={() => executeAction(onOpenLiveTest)}>
+                  <span className="cad-dd-icon"><Play size={14} className="text-cyan" /></span>
+                  <span className="cad-dd-label">Live Test-Bench Execution & Modbus Polling...</span>
+                  <span className="cad-dd-shortcut">F5</span>
+                </button>
+              )}
               <button className="cad-dropdown-item" onClick={() => executeAction(onToggleBottomDock)}>
                 <span className="cad-dd-icon"><Layers size={14} /></span>
                 <span className="cad-dd-label">Raw Terminal Telemetry Log Stream</span>
@@ -511,6 +559,26 @@ export const CadTopMenuBar: React.FC<CadTopMenuBarProps> = ({
                 <span className="cad-dd-icon"><Download size={14} /></span>
                 <span className="cad-dd-label">Generate Multi-Sheet Excel Verification File</span>
               </button>
+              {onSelectModel && (
+                <>
+                  <div className="cad-dd-divider"></div>
+                  <button className="cad-dropdown-item" onClick={() => executeAction(() => onSelectModel('CHx2000'))}>
+                    <span className="cad-dd-icon"><Cpu size={14} /></span>
+                    <span className="cad-dd-label">CDU Architecture: CHx2000 (Liquid)</span>
+                    <span className="cad-dd-check">{activeModelId === 'CHx2000' ? '✓' : ''}</span>
+                  </button>
+                  <button className="cad-dropdown-item" onClick={() => executeAction(() => onSelectModel('CHx1000'))}>
+                    <span className="cad-dd-icon"><Cpu size={14} /></span>
+                    <span className="cad-dd-label">CDU Architecture: CHx1000 (Liquid)</span>
+                    <span className="cad-dd-check">{activeModelId === 'CHx1000' ? '✓' : ''}</span>
+                  </button>
+                  <button className="cad-dropdown-item" onClick={() => executeAction(() => onSelectModel('AHx180'))}>
+                    <span className="cad-dd-icon"><Cpu size={14} /></span>
+                    <span className="cad-dd-label">CDU Architecture: AHx180 (Air-Cooled)</span>
+                    <span className="cad-dd-check">{activeModelId === 'AHx180' ? '✓' : ''}</span>
+                  </button>
+                </>
+              )}
             </div>
           )}
         </div>

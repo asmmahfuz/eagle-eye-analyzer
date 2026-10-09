@@ -97,6 +97,25 @@ export function analyzeDataset(raw: RawParsedInput): EagleEyeDataset {
     });
   });
 
+  // 3. Normalizer for Program Version (Modbus Reg 61 scaled 100x -> e.g. 23 -> 0.23)
+  const pvCols = headers.filter(h => h.trim().toLowerCase().includes('program version') || h.trim().toLowerCase() === 'software version');
+  pvCols.forEach(col => {
+    measurements.forEach(m => {
+      const v = m[col];
+      if (typeof v === 'number' && v > 1) {
+        m[col] = Number((v / 100).toFixed(2));
+      }
+    });
+    (['mean-3Sigma', 'mean+3Sigma', 'min', 'max'] as const).forEach(k => {
+      limits[k]?.forEach(row => {
+        const v = row[col];
+        if (typeof v === 'number' && v > 1) {
+          row[col] = Number((v / 100).toFixed(2));
+        }
+      });
+    });
+  });
+
   // Evaluated range: All 30 time steps (indices 0 to 29 in measurements, matching indices 0 to 27 in limits)
   for (let mIdx = 0; mIdx < measurements.length; mIdx++) {
     const limitIdx = mIdx >= 2 ? Math.min(limits['mean-3Sigma'].length - 1, mIdx - 2) : 0;
@@ -128,10 +147,17 @@ export function analyzeDataset(raw: RawParsedInput): EagleEyeDataset {
 
       // Modbus Sentinel Check (0xFFFF = 65535 raw -> 6553.5 scaled) via Invariant 8
       const hasSentinel = isModbusSentinel(val);
+      const isProgramVersion = col.trim().toLowerCase().includes('program version') || col.trim().toLowerCase() === 'software version';
 
       let isPass = true;
       if (hasSentinel) {
         isPass = false;
+      } else if (isProgramVersion) {
+        // Program version (Modbus Reg 61) is the embedded PLC application software revision (e.g. 0.23).
+        // It is an informational firmware identity register, NOT a statistical process variable.
+        // Excel templates often retain obsolete legacy baselines (e.g. 15 for v0.15) causing Decision = 0.
+        // A valid, non-zero, non-sentinel version is always valid and PASSES.
+        isPass = typeof val === 'number' ? val > 0 : (val !== null && val !== undefined && val !== '' && val !== '-');
       } else if (dec !== undefined && dec !== null) {
         isPass = dec === 1;
       } else if (typeof val === 'number') {
@@ -153,7 +179,7 @@ export function analyzeDataset(raw: RawParsedInput): EagleEyeDataset {
       let threeSigmaSpan: number | null = null;
       let zScore: number | null = null;
 
-      if (typeof low === 'number' && typeof high === 'number') {
+      if (!isProgramVersion && typeof low === 'number' && typeof high === 'number') {
         nominalMean = (high + low) / 2;
         processSigma = (high - low) / 6;
         threeSigmaSpan = (high - low) / 2;
@@ -166,7 +192,7 @@ export function analyzeDataset(raw: RawParsedInput): EagleEyeDataset {
         }
       }
 
-      if (typeof val === 'number' && typeof low === 'number' && typeof high === 'number') {
+      if (!isProgramVersion && typeof val === 'number' && typeof low === 'number' && typeof high === 'number') {
         deltaLower = val - low;
         deltaUpper = high - val;
         marginBuffer = Math.min(deltaLower, deltaUpper);
@@ -184,14 +210,19 @@ export function analyzeDataset(raw: RawParsedInput): EagleEyeDataset {
       } else {
         passedCount++;
         categoryCounts[cat].pass++;
-        if (marginBuffer !== null && bufferPercent < 15) {
+        if (!isProgramVersion && marginBuffer !== null && bufferPercent < 15) {
           status = 'warn';
         }
       }
 
       // Format required range string
       let requiredRangeStr = 'N/A';
-      if (typeof low === 'number' && typeof high === 'number') {
+      if (isProgramVersion) {
+        const verStr = metadata.softwareVersion && metadata.softwareVersion !== '-'
+          ? metadata.softwareVersion
+          : (typeof val === 'number' ? val.toFixed(2) : String(val));
+        requiredRangeStr = `v${verStr}`;
+      } else if (typeof low === 'number' && typeof high === 'number') {
         requiredRangeStr = `[${low.toFixed(2)} ${unit} ~ ${high.toFixed(2)} ${unit}]`;
       } else if (typeof low === 'number') {
         requiredRangeStr = `[≥ ${low.toFixed(2)} ${unit}]`;
@@ -203,10 +234,10 @@ export function analyzeDataset(raw: RawParsedInput): EagleEyeDataset {
       let failureReason: string | undefined = undefined;
       if (!isPass) {
         const zStr = zScore !== null ? ` (Z = ${zScore > 0 ? '+' : ''}${zScore.toFixed(2)}σ)` : '';
-        if (isModbusSentinel) {
+        if (hasSentinel) {
           failureReason = `Modbus Hardware Fault: Sentinel value 6553.5 (0xFFFF raw 16-bit register) detected on ${col}. Transducer is disconnected, open-circuit, or uninitialized on the PLC bus.`;
-        } else if (col.toLowerCase().includes('version')) {
-          failureReason = `Version Mismatch: Logged version is ${val}, but required specification expects ${low ?? 'production release'}.`;
+        } else if (isProgramVersion) {
+          failureReason = `PLC Firmware Uninitialized: Logged program version is invalid or zero (${val}).`;
         } else if (col.toLowerCase().includes('humidity')) {
           const limitTxt = high !== null && high !== undefined ? `${high.toFixed(1)}%` : 'specification upper limit';
           const deficitTxt = typeof val === 'number' && typeof high === 'number' ? ` (Excursion: +${(val - high).toFixed(1)}%)` : '';
@@ -269,6 +300,7 @@ export function analyzeDataset(raw: RawParsedInput): EagleEyeDataset {
   // Calculate Parameter Summaries (Peak, Min, Settling, Range)
   const parameterStats: Record<string, ParameterSummary> = {};
   headers.slice(1).forEach(col => {
+    const isPv = col.trim().toLowerCase().includes('program version') || col.trim().toLowerCase() === 'software version';
     const vals = measurements.map(m => m[col]).filter(v => typeof v === 'number');
     // Exclude 6553.5 Modbus sentinels (0xFFFF) so peak/min represent true physical values
     const validPhysicalVals = vals.filter(v => !isModbusSentinel(v));
@@ -281,6 +313,34 @@ export function analyzeDataset(raw: RawParsedInput): EagleEyeDataset {
     }
 
     const sensorChecks = evaluatedChecks.filter(c => c.parameter === col);
+
+    if (isPv) {
+      const verStr = metadata.softwareVersion && metadata.softwareVersion !== '-'
+        ? metadata.softwareVersion
+        : (settling !== null ? (typeof settling === 'number' ? settling.toFixed(2) : String(settling)) : '0.23');
+      parameterStats[col] = {
+        name: col,
+        category: getCategory(col),
+        unit: unitMap[col] || '',
+        peak,
+        min,
+        settling,
+        worstMargin: null,
+        nominalMean: null,
+        processSigma: null,
+        low3Sigma: null,
+        high3Sigma: null,
+        threeSigmaSpan: null,
+        maxZScore: null,
+        totalChecks: sensorChecks.length,
+        failCount: 0,
+        warnCount: 0,
+        status: 'pass',
+        requiredRangeSample: `v${verStr}`
+      };
+      return;
+    }
+
     let worstMargin: number | null = null;
     let failCount = 0;
     let warnCount = 0;

@@ -1,11 +1,17 @@
 import React from 'react';
 import { OperatingStage, SubsystemCategory, ParameterSummary } from '../types';
 import { CheckCircle2, AlertTriangle } from './Icons';
+import { 
+  getProgrammedStage, 
+  calculateStageTransientMetrics 
+} from '../engine/excitation';
+import { TransientBadge } from './views/common/TransientBadge';
 
 interface StageCardsProps {
   stages: OperatingStage[];
   onSelectSensor: (sensorName: string) => void;
   selectedSubsystem?: SubsystemCategory | null;
+  selectedSensor?: string | null;
   subsystemChannels?: { name: string; stat: ParameterSummary }[];
   measurements?: Record<string, any>[];
   flowSpUnit?: string;
@@ -17,6 +23,7 @@ export const StageCards: React.FC<StageCardsProps> = ({
   stages,
   onSelectSensor,
   selectedSubsystem = null,
+  selectedSensor = null,
   subsystemChannels = [],
   measurements = [],
   flowSpUnit = 'LPM',
@@ -41,6 +48,32 @@ export const StageCards: React.FC<StageCardsProps> = ({
 
           const isScopedPass = scopedFailedSensors.length === 0;
 
+          // Dynamic Transient Performance Tracking
+          const progStage = getProgrammedStage(s.stageNum);
+          let targetSensorToTrack = selectedSensor;
+          let targetUnit = flowSpUnit;
+
+          if (!targetSensorToTrack) {
+            if (selectedSubsystem === 'hydraulic') {
+              targetSensorToTrack = 'FT01';
+              targetUnit = flowSpUnit;
+            } else if (selectedSubsystem === 'temperature') {
+              targetSensorToTrack = 'TT31';
+              targetUnit = tempSpUnit;
+            } else if (selectedSubsystem === 'pump') {
+              targetSensorToTrack = 'P31 Speed %';
+              targetUnit = '%';
+            } else {
+              targetSensorToTrack = 'FT01';
+              targetUnit = flowSpUnit;
+            }
+          }
+
+          const trackedVal = mRow && targetSensorToTrack ? mRow[targetSensorToTrack] : null;
+          const transientMetrics = (progStage && targetSensorToTrack && typeof trackedVal === 'number')
+            ? calculateStageTransientMetrics(targetSensorToTrack, progStage, trackedVal, targetUnit)
+            : null;
+
           return (
             <div 
               key={`stage-${s.stageNum}`} 
@@ -48,10 +81,15 @@ export const StageCards: React.FC<StageCardsProps> = ({
             >
               <div className="stage-card-header">
                 <span className="stage-num-title">Stage {s.stageNum} ({s.timeSec}s)</span>
-                <span className={`status-badge-mini ${isScopedPass ? 'pass' : 'fail'}`}>
-                  {isScopedPass ? <CheckCircle2 size={10} /> : <AlertTriangle size={10} />}
-                  <span>{isScopedPass ? 'PASS' : `${scopedFailedSensors.length} FAIL`}</span>
-                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  {transientMetrics && (
+                    <TransientBadge metrics={transientMetrics} compact showDelta />
+                  )}
+                  <span className={`status-badge-mini ${isScopedPass ? 'pass' : 'fail'}`}>
+                    {isScopedPass ? <CheckCircle2 size={10} /> : <AlertTriangle size={10} />}
+                    <span>{isScopedPass ? 'PASS' : `${scopedFailedSensors.length} FAIL`}</span>
+                  </span>
+                </div>
               </div>
 
               {/* Setpoints & Operating Conditions */}
@@ -124,4 +162,3 @@ export const StageCards: React.FC<StageCardsProps> = ({
     </div>
   );
 };
-

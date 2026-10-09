@@ -3,6 +3,8 @@ import * as XLSX from 'xlsx';
 import { EagleEyeDataset, CadMainView, SubsystemCategory } from './types';
 import { parseEagleEyeWorkbook } from './engine/parser';
 import { exportAnalysisExcel } from './engine/exporter';
+import { CduModelId } from './engine/models/modelTypes';
+import { detectModelFromWorkbook, getModelProfile } from './engine/models/modelRegistry';
 
 import { CadTopMenuBar } from './components/cad/CadTopMenuBar';
 import { CadWorkspaceTree } from './components/cad/CadWorkspaceTree';
@@ -10,7 +12,7 @@ import { CadParameterInspector } from './components/cad/CadParameterInspector';
 import { CadTerminalPanel } from './components/cad/CadTerminalPanel';
 import { CadTabbedCanvas } from './components/cad/CadTabbedCanvas';
 import { CadStatusBar } from './components/cad/CadStatusBar';
-import { CadShortcutsModal, CadModbusModal, CadAboutModal } from './components/cad/CadModals';
+import { CadShortcutsModal, CadModbusModal, CadAboutModal, CadLiveTestModal } from './components/cad/CadModals';
 
 export const App: React.FC = () => {
   // Clean workstation state: Starts with 0 preloaded data awaiting user ingestion
@@ -20,6 +22,10 @@ export const App: React.FC = () => {
   const [activeView, setActiveView] = useState<CadMainView>('datasheet');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+
+  // Multi-Model CDU Architecture Schema (Phase 13)
+  const [activeModelId, setActiveModelId] = useState<CduModelId>('CHx2000');
+  const [detectedModelId, setDetectedModelId] = useState<CduModelId>('CHx2000');
 
   // Multi-window Dock Visibility States ("might not be needed all the time")
   const [showLeftDock, setShowLeftDock] = useState<boolean>(true);
@@ -34,6 +40,7 @@ export const App: React.FC = () => {
   const [showShortcutsModal, setShowShortcutsModal] = useState<boolean>(false);
   const [showModbusModal, setShowModbusModal] = useState<boolean>(false);
   const [showAboutModal, setShowAboutModal] = useState<boolean>(false);
+  const [showLiveTestModal, setShowLiveTestModal] = useState<boolean>(false);
 
   // Comfortable light theme state by default, persisted to localStorage
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
@@ -64,6 +71,9 @@ export const App: React.FC = () => {
         raw: false
       });
       const parsed = parseEagleEyeWorkbook(wb, file.name);
+      const detection = detectModelFromWorkbook(parsed, file.name);
+      setActiveModelId(detection.profile.id);
+      setDetectedModelId(detection.profile.id);
       setDataset(parsed);
       setSelectedSubsystem(null);
       setSelectedSensor(null);
@@ -106,6 +116,9 @@ export const App: React.FC = () => {
         raw: false
       });
       const parsed = parseEagleEyeWorkbook(wb, sampleName);
+      const detection = detectModelFromWorkbook(parsed, sampleName);
+      setActiveModelId(detection.profile.id);
+      setDetectedModelId(detection.profile.id);
       setDataset(parsed);
       setSelectedSubsystem(null);
       setSelectedSensor(null);
@@ -120,7 +133,11 @@ export const App: React.FC = () => {
 
   const handleExport = () => {
     if (dataset) {
-      exportAnalysisExcel(dataset);
+      const currentModel = getModelProfile(activeModelId);
+      exportAnalysisExcel(dataset, {
+        modelName: currentModel.name,
+        coolingSeries: currentModel.series
+      });
     }
   };
 
@@ -129,6 +146,17 @@ export const App: React.FC = () => {
       const reParsed = { ...dataset };
       setDataset(reParsed);
     }
+  };
+
+  const handleLiveTestCompleted = (liveDataset: EagleEyeDataset) => {
+    setDataset(liveDataset);
+    if (liveDataset.metadata.model) {
+      setActiveModelId(liveDataset.metadata.model as CduModelId);
+      setDetectedModelId(liveDataset.metadata.model as CduModelId);
+    }
+    setSelectedSubsystem(null);
+    setSelectedSensor(null);
+    setActiveView('datasheet');
   };
 
   const handleSelectSensor = (sensor: string | null) => {
@@ -152,6 +180,8 @@ export const App: React.FC = () => {
     setSelectedSensor(null);
     setSelectedSubsystem(null);
     setActiveView('datasheet');
+    setActiveModelId('CHx2000');
+    setDetectedModelId('CHx2000');
     setUploadError(null);
   };
 
@@ -191,6 +221,9 @@ export const App: React.FC = () => {
       } else if (e.key === 'F1') {
         e.preventDefault();
         setShowShortcutsModal(true);
+      } else if (e.key === 'F5' || (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'r')) {
+        e.preventDefault();
+        setShowLiveTestModal(true);
       }
     };
 
@@ -239,6 +272,10 @@ export const App: React.FC = () => {
         onZoomReset={() => setZoomLevel(1.0)}
         hasDataset={dataset !== null}
         onLoadSample={handleLoadSample}
+        activeModelId={activeModelId}
+        onSelectModel={setActiveModelId}
+        detectedModelId={detectedModelId}
+        onOpenLiveTest={() => setShowLiveTestModal(true)}
       />
 
       {/* Main Multi-Window Engineering Workspace */}
@@ -276,6 +313,7 @@ export const App: React.FC = () => {
             zoomLevel={zoomLevel}
             onMouseMoveCoords={(x, y) => setCursorCoords({ x, y })}
             onLoadSample={handleLoadSample}
+            onOpenLiveTest={() => setShowLiveTestModal(true)}
           />
 
           {/* Bottom Side Window: Terminal & Diagnostics Messages */}
@@ -301,6 +339,7 @@ export const App: React.FC = () => {
             onSelectSensor={handleSelectSensor}
             selectedSubsystem={selectedSubsystem}
             onSelectSubsystem={handleSelectSubsystem}
+            activeModelId={activeModelId}
             onClose={() => setShowRightDock(false)}
           />
         )}
@@ -334,6 +373,12 @@ export const App: React.FC = () => {
       <CadAboutModal
         isOpen={showAboutModal}
         onClose={() => setShowAboutModal(false)}
+      />
+      <CadLiveTestModal
+        isOpen={showLiveTestModal}
+        onClose={() => setShowLiveTestModal(false)}
+        onTestCompleted={handleLiveTestCompleted}
+        activeModelId={activeModelId}
       />
     </div>
   );

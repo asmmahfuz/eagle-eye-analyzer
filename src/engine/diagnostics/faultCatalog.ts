@@ -22,7 +22,7 @@ export function getFaultsForCategory(category: SubsystemCategory): CanonicalFaul
   return CANONICAL_FAULTS.filter(f => f.category === category);
 }
 
-export function getFaultsForSensor(sensorName: string): CanonicalFaultDefinition[] {
+export function getCanonicalFaultsForSensor(sensorName: string): CanonicalFaultDefinition[] {
   const norm = sensorName.trim().toLowerCase();
   return CANONICAL_FAULTS.filter(f => 
     f.associatedSensors.some(s => s.toLowerCase() === norm || norm.includes(s.toLowerCase()))

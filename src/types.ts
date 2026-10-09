@@ -8,7 +8,12 @@ export interface TestMetadata {
   finalResult: 'Pass' | 'Fail';
   customer?: string;            // e.g. "GOOGLE"
   seqNumber?: string;           // e.g. "G592"
+  model?: string;               // e.g. "CHx2000" | "CHx1000" | "AHx180"
   filename: string;
+  saleOrderNumber?: string;
+  partNumber?: string;
+  firmwareVersion?: string;
+  activeAlarms?: string;
 }
 
 export type SubsystemCategory = 

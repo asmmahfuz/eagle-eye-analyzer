@@ -97,7 +97,7 @@ export const ModbusReadRegistersTable: React.FC = () => {
                   </span>
                 </td>
                 <td className="text-dim">
-                  {reg.scaling === 1 ? '×1.0' : '×0.1'}
+                  {reg.scaling === 1 ? '×1.0' : reg.scaling === 100 ? '×0.01' : '×0.1'}
                 </td>
                 <td className="text-amber font-bold">
                   {reg.engineeringUnit || '--'}

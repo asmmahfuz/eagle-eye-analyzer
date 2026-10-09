@@ -15,6 +15,7 @@ interface CadEmptyWorkspaceProps {
   uploadError: string | null;
   onClearError: () => void;
   onLoadSample?: (name?: string) => void;
+  onOpenLiveTest?: () => void;
 }
 
 export const CadEmptyWorkspace: React.FC<CadEmptyWorkspaceProps> = ({
@@ -23,7 +24,8 @@ export const CadEmptyWorkspace: React.FC<CadEmptyWorkspaceProps> = ({
   isLoading,
   uploadError,
   onClearError,
-  onLoadSample
+  onLoadSample,
+  onOpenLiveTest
 }) => {
   const [isDragOver, setIsDragOver] = useState(false);
   const dropRef = useRef<HTMLDivElement>(null);
@@ -125,6 +127,22 @@ export const CadEmptyWorkspace: React.FC<CadEmptyWorkspaceProps> = ({
             >
               <Upload size={13} style={{ marginRight: 6 }} />
               Load Sample (CD050L)
+            </button>
+          )}
+
+          {onOpenLiveTest && (
+            <button 
+              className="cad-drop-browse-btn"
+              disabled={isLoading}
+              style={{ background: 'rgba(0, 210, 255, 0.22)', borderColor: '#00d2ff', color: 'var(--text-main)', fontWeight: 600 }}
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenLiveTest();
+              }}
+              title="Execute live Modbus polling test bench (Excitation Profile)"
+            >
+              <span style={{ marginRight: 6 }}>⚡</span>
+              Run Live Test-Bench
             </button>
           )}
         </div>

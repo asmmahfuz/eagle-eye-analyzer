@@ -28,6 +28,7 @@ interface CadTabbedCanvasProps {
   zoomLevel: number;
   onMouseMoveCoords?: (x: number, y: number) => void;
   onLoadSample?: (name?: string) => void;
+  onOpenLiveTest?: () => void;
 }
 
 export const CadTabbedCanvas: React.FC<CadTabbedCanvasProps> = ({
@@ -45,7 +46,8 @@ export const CadTabbedCanvas: React.FC<CadTabbedCanvasProps> = ({
   onClearError,
   zoomLevel,
   onMouseMoveCoords,
-  onLoadSample
+  onLoadSample,
+  onOpenLiveTest
 }) => {
   // Active 3-tier Scope Calculation (unit | group | test)
   const validSensor = useMemo(() => {
@@ -204,6 +206,7 @@ export const CadTabbedCanvas: React.FC<CadTabbedCanvasProps> = ({
             uploadError={uploadError}
             onClearError={onClearError}
             onLoadSample={onLoadSample}
+            onOpenLiveTest={onOpenLiveTest}
           />
         </div>
       </div>

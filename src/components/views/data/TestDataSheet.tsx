@@ -18,6 +18,12 @@ import {
 } from '../../Icons';
 import { CadRegisterBadge } from '../../cad/CadRegisterBadge';
 import { getRegisterByName } from '../../../engine/registers';
+import { 
+  getProgrammedStage, 
+  calculateStageTransientMetrics, 
+  calculateChannelTransientProfile 
+} from '../../../engine/excitation';
+import { TransientBadge } from '../common/TransientBadge';
 
 export interface TestDataSheetProps {
   dataset: EagleEyeDataset;
@@ -102,6 +108,11 @@ export const TestDataSheet: React.FC<TestDataSheetProps> = ({
     return 'Standard PLC Holding Register';
   }, [regDef]);
 
+  // Dynamic transient profile across all 10 stages
+  const transientProfile = useMemo(() => {
+    return calculateChannelTransientProfile(selectedSensor, dataset);
+  }, [selectedSensor, dataset]);
+
   // Check 10-stage evaluations specifically for this sensor
   const stageEvaluations = useMemo(() => {
     return stages.map(stg => {
@@ -109,15 +120,20 @@ export const TestDataSheet: React.FC<TestDataSheetProps> = ({
       const val = mRow ? mRow[selectedSensor] : null;
       const pt = sensorEvaluations.find(e => e.timeSec === stg.timeSec);
       const isFailed = stg.failedSensors.includes(selectedSensor) || (pt ? pt.status === 'fail' : false);
+      const progStage = getProgrammedStage(stg.stageNum);
+      const transientMetrics = (progStage && typeof val === 'number')
+        ? calculateStageTransientMetrics(selectedSensor, progStage, val, unit)
+        : null;
 
       return {
         stage: stg,
         measured: val,
         evalPoint: pt,
-        isFailed
+        isFailed,
+        transientMetrics
       };
     });
-  }, [stages, measurements, sensorEvaluations, selectedSensor]);
+  }, [stages, measurements, sensorEvaluations, selectedSensor, unit]);
 
   return (
     <section className="cad-tab-focused-card row-data-sheet">
@@ -289,7 +305,7 @@ export const TestDataSheet: React.FC<TestDataSheetProps> = ({
 
         <div className="stages-cards-wrapper">
           <div className="stages-grid-compact">
-            {stageEvaluations.map(({ stage, measured, evalPoint, isFailed }) => {
+            {stageEvaluations.map(({ stage, measured, evalPoint, isFailed, transientMetrics }) => {
               const valStr = typeof measured === 'number' 
                 ? measured.toFixed(2) 
                 : (measured !== null && measured !== undefined ? String(measured) : '--');
@@ -317,10 +333,15 @@ export const TestDataSheet: React.FC<TestDataSheetProps> = ({
                 >
                   <div className="stage-card-header">
                     <span className="stage-num-title">Stage {stage.stageNum} ({stage.timeSec}s)</span>
-                    <span className={`status-badge-mini ${isFailed ? 'fail' : 'pass'}`}>
-                      {isFailed ? <AlertTriangle size={10} /> : <CheckCircle2 size={10} />}
-                      <span>{isFailed ? 'EXCURSION' : 'PASS'}</span>
-                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                      {transientMetrics && (
+                        <TransientBadge metrics={transientMetrics} compact showDelta />
+                      )}
+                      <span className={`status-badge-mini ${isFailed ? 'fail' : 'pass'}`}>
+                        {isFailed ? <AlertTriangle size={10} /> : <CheckCircle2 size={10} />}
+                        <span>{isFailed ? 'EXCURSION' : 'PASS'}</span>
+                      </span>
+                    </div>
                   </div>
 
                   {/* Setpoint Reference */}
@@ -622,6 +643,7 @@ export const TestDataSheet: React.FC<TestDataSheetProps> = ({
                 <th>Process Sigma (σ)</th>
                 <th>Sigma Dev (Z)</th>
                 <th>Margin Buffer</th>
+                <th>Transient Tracking (ΔSP)</th>
                 <th>3σ Verdict</th>
               </tr>
             </thead>
@@ -673,6 +695,20 @@ export const TestDataSheet: React.FC<TestDataSheetProps> = ({
                           {pt.marginBuffer >= 0 ? '+' : ''}{pt.marginBuffer.toFixed(2)} {pt.unit}
                         </span>
                       ) : '-'}
+                    </td>
+                    <td className="tracking-col font-mono" style={{ textAlign: 'center' }}>
+                      {(() => {
+                        const stg = stages.find(s => s.timeSec === pt.timeSec);
+                        const progStage = getProgrammedStage(stg ? stg.stageNum : Math.min(10, Math.floor(idx / 3) + 1));
+                        const tMetrics = (progStage && typeof pt.measured === 'number')
+                          ? calculateStageTransientMetrics(selectedSensor, progStage, pt.measured, pt.unit)
+                          : null;
+                        return tMetrics ? (
+                          <TransientBadge metrics={tMetrics} compact showDelta />
+                        ) : (
+                          <span style={{ color: 'var(--text-dim)', fontSize: '11px' }}>--</span>
+                        );
+                      })()}
                     </td>
                     <td className="status-col">
                       <span className={`status-pill-small ${pt.status}`}>

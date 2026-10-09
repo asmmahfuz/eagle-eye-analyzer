@@ -310,6 +310,19 @@ export function parseEagleEyeWorkbook(wb: XLSX.WorkBook, filename: string): Eagl
     if (matchSeq) seqNumber = matchSeq[0].toUpperCase();
   }
 
+  // CDU Model Detection
+  let detectedModel = rawMeta['Model'] || rawMeta['CDU Model'] || rawMeta['CDU Type'] || rawMeta['Type'] || '';
+  if (!detectedModel) {
+    if (/AHX[-_]?180|CHX[-_]?80/i.test(filename)) detectedModel = 'AHx180';
+    else if (/CHX[-_]?1000|CH[-_]?1000/i.test(filename)) detectedModel = 'CHx1000';
+    else if (/CHX[-_]?2000|CH[-_]?2000|CD050L|CD04XB/i.test(filename)) detectedModel = 'CHx2000';
+  }
+
+  const saleOrder = rawMeta['Sale Order Number'] || rawMeta['Sale Order'] || rawMeta['SO'] || '';
+  const partNumber = rawMeta['Part Number'] || rawMeta['PN'] || '';
+  const firmwareVersion = rawMeta['Firmware Version'] || rawMeta['FW Version'] || frameworkBuild;
+  const activeAlarms = rawMeta['Active Alarms'] || rawMeta['Active Alarms Test'] || '';
+
   const metadata: TestMetadata = {
     serialNumber: trueSerial,
     workOrderNumber: workOrder,
@@ -320,7 +333,12 @@ export function parseEagleEyeWorkbook(wb: XLSX.WorkBook, filename: string): Eagl
     finalResult: finalResult,
     customer: customer || undefined,
     seqNumber: seqNumber || undefined,
-    filename: filename
+    model: detectedModel || undefined,
+    filename: filename,
+    saleOrderNumber: saleOrder || undefined,
+    partNumber: partNumber || undefined,
+    firmwareVersion: firmwareVersion !== '-' ? firmwareVersion : undefined,
+    activeAlarms: activeAlarms || undefined
   };
 
   // 2. Measurements Sheet
@@ -389,11 +407,16 @@ export function parseEagleEyeWorkbook(wb: XLSX.WorkBook, filename: string): Eagl
     headers.forEach((h, i) => {
       const originalColIdx = validColIndices[i];
       const val = row[originalColIdx];
+      const isPv = h.trim().toLowerCase().includes('program version') || h.trim().toLowerCase() === 'software version';
       if (typeof val === 'number') {
-        rowObj[h] = val;
+        rowObj[h] = isPv && val > 1 ? Number((val / 100).toFixed(2)) : val;
       } else if (val !== undefined && val !== null && val !== '') {
         const parsedNum = Number(val);
-        rowObj[h] = isNaN(parsedNum) ? String(val).trim() : parsedNum;
+        if (!isNaN(parsedNum)) {
+          rowObj[h] = isPv && parsedNum > 1 ? Number((parsedNum / 100).toFixed(2)) : parsedNum;
+        } else {
+          rowObj[h] = String(val).trim();
+        }
       } else {
         rowObj[h] = null;
       }
@@ -403,6 +426,14 @@ export function parseEagleEyeWorkbook(wb: XLSX.WorkBook, filename: string): Eagl
 
   if (measurements.length === 0) {
     throw new Error(`No valid data rows found in sheet '${measEntry.name}'.`);
+  }
+
+  // Ensure softwareVersion fallback if missing from Summary sheet
+  if ((!metadata.softwareVersion || metadata.softwareVersion === '-') && measurements.length > 0) {
+    const pvKey = headers.find(h => h.trim().toLowerCase().includes('program version'));
+    if (pvKey && measurements[0][pvKey] !== null && measurements[0][pvKey] !== undefined) {
+      metadata.softwareVersion = String(measurements[0][pvKey]);
+    }
   }
 
   // 3. Decision Sheet
@@ -450,7 +481,20 @@ export function parseEagleEyeWorkbook(wb: XLSX.WorkBook, filename: string): Eagl
         headers.forEach((h, i) => {
           const originalColIdx = validColIndices[i];
           const val = row[originalColIdx];
-          rowObj[h] = val !== undefined && val !== null && val !== '' ? Number(val) : null;
+          const isPv = h.trim().toLowerCase().includes('program version') || h.trim().toLowerCase() === 'software version';
+          if (val !== undefined && val !== null && val !== '') {
+            let num = Number(val);
+            if (!isNaN(num)) {
+              if (isPv && num > 1) {
+                num = Number((num / 100).toFixed(2));
+              }
+              rowObj[h] = num;
+            } else {
+              rowObj[h] = null;
+            }
+          } else {
+            rowObj[h] = null;
+          }
         });
         rows.push(rowObj);
       }

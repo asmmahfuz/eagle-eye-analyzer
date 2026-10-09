@@ -83,6 +83,11 @@ export const CadShortcutsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
                 <td>View</td>
               </tr>
               <tr>
+                <td><kbd>F5</kbd> / <kbd>Ctrl+Shift+R</kbd></td>
+                <td>Run Live Test-Bench (Excitation Profile)</td>
+                <td>Test Bay</td>
+              </tr>
+              <tr>
                 <td><kbd>F11</kbd></td>
                 <td>Toggle Fullscreen Mode</td>
                 <td>Window</td>
@@ -105,6 +110,7 @@ export const CadShortcutsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
 };
 
 export { CadModbusModal } from './modbus/CadModbusModal';
+export { CadLiveTestModal } from './runner/CadLiveTestModal';
 
 export const CadAboutModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
   if (!isOpen) return null;

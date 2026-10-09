@@ -24,6 +24,14 @@ import {
 } from '../../Icons';
 import { getRegisterByName } from '../../../engine/registers';
 import { CadRegisterBadge } from '../../cad/CadRegisterBadge';
+import { 
+  getChannelTrackedQuantity, 
+  generateProgrammedTimeline, 
+  calculateChannelTransientProfile,
+  calculateStageTransientMetrics,
+  getProgrammedStage
+} from '../../../engine/excitation';
+import { TransientBadge } from '../common/TransientBadge';
 
 Chart.register(...registerables);
 
@@ -86,6 +94,11 @@ export const TestTelemetry: React.FC<TestTelemetryProps> = ({
   }, [sensorEvaluations]);
 
   const hasFail = failures.length > 0;
+
+  const trackedQty = useMemo(() => getChannelTrackedQuantity(selectedSensor), [selectedSensor]);
+  const transientProfile = useMemo(() => {
+    return calculateChannelTransientProfile(selectedSensor, dataset);
+  }, [selectedSensor, dataset]);
 
   // Mean value fallback
   const meanValue = useMemo(() => {
@@ -244,15 +257,35 @@ export const TestTelemetry: React.FC<TestTelemetryProps> = ({
     }
 
     if (showSetpointOverlay) {
+      const sharesPrimaryAxis = trackedQty !== 'none';
+      const targetQuantity = trackedQty !== 'none' ? trackedQty : 'flow';
+      const steppedData = generateProgrammedTimeline(targetQuantity, measurements.map(m => m['Time']));
+
+      const spLabel = targetQuantity === 'flow'
+        ? `Programmed Flow SP (Stepped: 160–560 ${flowSpUnit})`
+        : targetQuantity === 'dp'
+        ? `Programmed DP SP (Stepped: 5–33 ${dpSpUnit})`
+        : targetQuantity === 'temp'
+        ? 'Programmed Temp SP (Stepped: 21–27°C)'
+        : targetQuantity === 'pump'
+        ? 'Nominal Pump SP (Stepped: 56–99%)'
+        : `Programmed Flow SP (${flowSpUnit})`;
+
+      const spColor = targetQuantity === 'flow' ? '#f59e0b'
+        : targetQuantity === 'dp' ? '#10b981'
+        : targetQuantity === 'temp' ? '#fb923c'
+        : '#8b5cf6';
+
       datasets.push({
-        label: `Flow Setpoint (${flowSpUnit})`,
-        data: flowSpData,
-        borderColor: 'rgba(245, 158, 11, 0.65)',
-        borderWidth: 1.5,
-        borderDash: [6, 3],
+        label: spLabel,
+        data: steppedData,
+        borderColor: spColor,
+        borderWidth: 1.8,
+        borderDash: [5, 3],
+        stepped: 'before' as const,
         pointRadius: 0,
         fill: false,
-        yAxisID: 'ySetpoint'
+        yAxisID: sharesPrimaryAxis ? 'y' : 'ySetpoint'
       });
     }
 
@@ -327,7 +360,7 @@ export const TestTelemetry: React.FC<TestTelemetryProps> = ({
               font: { size: 10, weight: 'bold' }
             }
           },
-          ...(showSetpointOverlay ? {
+          ...(showSetpointOverlay && trackedQty === 'none' ? {
             ySetpoint: {
               type: 'linear' as const,
               position: 'right' as const,
@@ -448,14 +481,18 @@ export const TestTelemetry: React.FC<TestTelemetryProps> = ({
               <span>Min / Max Limits</span>
             </label>
 
-            <label className="plot-toggle-btn">
+            <label className="plot-toggle-btn" title="Toggle 10-stage ideal stepped programmed setpoint curve">
               <input 
                 type="checkbox" 
                 checked={showSetpointOverlay} 
                 onChange={(e) => setShowSetpointOverlay(e.target.checked)} 
               />
               <span className="legend-indicator dotted-amber"></span>
-              <span>Flow Setpoint Overlay</span>
+              <span>
+                {trackedQty !== 'none' 
+                  ? `${trackedQty.toUpperCase()} Setpoint (Stepped)` 
+                  : 'Flow Setpoint (Stepped)'}
+              </span>
             </label>
 
             <label className="plot-toggle-btn">
@@ -612,6 +649,54 @@ export const TestTelemetry: React.FC<TestTelemetryProps> = ({
               </tbody>
             </table>
           </div>
+
+          {/* Card C: Dynamic Transient Tracking & Settling Performance */}
+          <div className="cad-prop-group">
+            <div className="cad-prop-group-header">
+              <span className="cad-prop-chevron">▾</span>
+              <span className="cad-prop-group-title">Dynamic Transient Tracking & Setpoint Metrics</span>
+            </div>
+            <table className="cad-prop-table">
+              <tbody>
+                <tr>
+                  <td className="cad-prop-key">Tracked Loop Domain</td>
+                  <td className="cad-prop-val font-mono font-bold text-cyan">
+                    {trackedQty !== 'none' ? `${trackedQty.toUpperCase()} Excitation Loop (Reg 200–202)` : 'Uncoupled / Direct Feedback'}
+                  </td>
+                </tr>
+                <tr>
+                  <td className="cad-prop-key">Settling Stability</td>
+                  <td className="cad-prop-val">
+                    {transientProfile.overallStability !== 'N/A' ? (
+                      <span className={`status-pill-small ${transientProfile.overallStability === 'STABLE' ? 'pass' : (transientProfile.overallStability === 'MARGINAL' ? 'warn' : 'fail')}`}>
+                        {transientProfile.overallStability} ({transientProfile.settlingScorePercent}% Score)
+                      </span>
+                    ) : (
+                      <span className="cad-dim-tag">Baseline Steady-State</span>
+                    )}
+                  </td>
+                </tr>
+                <tr>
+                  <td className="cad-prop-key">Avg |Tracking Error|</td>
+                  <td className="cad-prop-val font-mono">
+                    {transientProfile.avgTrackingError !== null ? `±${transientProfile.avgTrackingError} ${unit}` : '--'}
+                  </td>
+                </tr>
+                <tr>
+                  <td className="cad-prop-key">Max Tracking Deficit</td>
+                  <td className="cad-prop-val font-mono">
+                    {transientProfile.maxTrackingError !== null ? `±${transientProfile.maxTrackingError} ${unit}` : '--'}
+                  </td>
+                </tr>
+                <tr>
+                  <td className="cad-prop-key">Peak Step Overshoot</td>
+                  <td className="cad-prop-val font-mono">
+                    {transientProfile.maxOvershootPercent !== null ? `+${transientProfile.maxOvershootPercent}%` : '0.0%'}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
@@ -650,6 +735,7 @@ export const TestTelemetry: React.FC<TestTelemetryProps> = ({
                 <th>Process Sigma (σ)</th>
                 <th>Sigma Dev (Z)</th>
                 <th>Margin Buffer</th>
+                <th>Transient Tracking (ΔSP)</th>
                 <th>3σ Verdict</th>
               </tr>
             </thead>
@@ -697,6 +783,20 @@ export const TestTelemetry: React.FC<TestTelemetryProps> = ({
                           {pt.marginBuffer >= 0 ? '+' : ''}{pt.marginBuffer.toFixed(2)} {pt.unit}
                         </span>
                       ) : '-'}
+                    </td>
+                    <td className="tracking-col font-mono" style={{ textAlign: 'center' }}>
+                      {(() => {
+                        const stg = stages.find(s => s.timeSec === pt.timeSec);
+                        const progStage = getProgrammedStage(stg ? stg.stageNum : Math.min(10, Math.floor(idx / 3) + 1));
+                        const tMetrics = (progStage && typeof pt.measured === 'number')
+                          ? calculateStageTransientMetrics(selectedSensor, progStage, pt.measured, pt.unit)
+                          : null;
+                        return tMetrics ? (
+                          <TransientBadge metrics={tMetrics} compact showDelta />
+                        ) : (
+                          <span style={{ color: 'var(--text-dim)', fontSize: '11px' }}>--</span>
+                        );
+                      })()}
                     </td>
                     <td className="status-col">
                       <span className={`status-pill-small ${pt.status}`}>

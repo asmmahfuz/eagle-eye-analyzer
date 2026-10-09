@@ -20,6 +20,7 @@ import {
   Layers,
   Sliders
 } from '../../Icons';
+import { TransientSummaryCard } from './TransientSummaryCard';
 
 Chart.register(...registerables);
 
@@ -219,12 +220,13 @@ export const UnitTelemetry: React.FC<UnitTelemetryProps> = ({
           backgroundColor: c.isSetpoint ? 'transparent' : `${c.color}15`,
           borderWidth: c.isSetpoint ? 1.8 : 2.2,
           borderDash: c.isSetpoint ? [5, 4] : undefined,
+          stepped: c.isSetpoint ? ('before' as const) : undefined,
           pointRadius: 2.5,
           pointHoverRadius: 5.5,
           pointBackgroundColor: c.color,
           pointBorderColor: isDark ? '#0b1120' : '#ffffff',
           pointBorderWidth: 1.5,
-          tension: 0.15,
+          tension: c.isSetpoint ? 0 : 0.15,
           yAxisID: c.yAxisID
         };
       });
@@ -457,6 +459,9 @@ export const UnitTelemetry: React.FC<UnitTelemetryProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Dynamic Transient Analytics Summary Card */}
+      <TransientSummaryCard dataset={dataset} />
 
       {/* 2. Whole-Unit Operational Overview Chart Card */}
       <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-card)' }}>

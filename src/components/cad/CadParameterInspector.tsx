@@ -8,11 +8,14 @@ import {
 import { CadInspectorStandby } from './CadInspectorStandby';
 import { CadRegisterBadge } from './CadRegisterBadge';
 import { getRegisterByName } from '../../engine/registers';
+import { CduModelId } from '../../engine/models/modelTypes';
+import { getModelProfile } from '../../engine/models/modelRegistry';
 
 interface CadParameterInspectorProps {
   dataset: EagleEyeDataset | null;
   selectedSensor: string | null;
   selectedSubsystem?: SubsystemCategory | null;
+  activeModelId?: CduModelId;
   onClose: () => void;
   onSelectSensor: (sensorName: string | null) => void;
   onSelectSubsystem?: (subsystem: SubsystemCategory | null) => void;
@@ -22,10 +25,12 @@ export const CadParameterInspector: React.FC<CadParameterInspectorProps> = ({
   dataset,
   selectedSensor,
   selectedSubsystem,
+  activeModelId = 'CHx2000',
   onClose,
   onSelectSensor,
   onSelectSubsystem
 }) => {
+  const modelProfile = getModelProfile(activeModelId);
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     identity: true,
     spc: true,
@@ -273,7 +278,7 @@ export const CadParameterInspector: React.FC<CadParameterInspectorProps> = ({
                       <td className="cad-prop-val font-mono">
                         {(() => {
                           const reg = getRegisterByName(selectedSensor);
-                          return reg ? (reg.scaling === 1 ? '1.0× (Raw/Unscaled)' : `0.1× (${reg.scaling} Divisor)`) : '1.0×';
+                          return reg ? (reg.scaling === 1 ? '1.0× (Raw/Unscaled)' : reg.scaling === 100 ? '0.01× (100 Divisor)' : `0.1× (${reg.scaling} Divisor)`) : '1.0×';
                         })()}
                       </td>
                     </tr>
@@ -534,6 +539,16 @@ export const CadParameterInspector: React.FC<CadParameterInspectorProps> = ({
                   <tr>
                     <td className="cad-prop-key">Serial Number</td>
                     <td className="cad-prop-val font-mono font-bold text-cyan">{dataset.metadata.serialNumber}</td>
+                  </tr>
+                  <tr>
+                    <td className="cad-prop-key">CDU Architecture</td>
+                    <td className="cad-prop-val font-mono font-bold text-cyan">
+                      {modelProfile.shortName} ({modelProfile.series === 'air-to-liquid' ? 'Air-Cooled' : 'Liquid-to-Liquid'})
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="cad-prop-key">Cooling Capacity</td>
+                    <td className="cad-prop-val font-mono">{modelProfile.nominalCapacityKw} kW Nominal</td>
                   </tr>
                   <tr>
                     <td className="cad-prop-key">Work Order</td>

@@ -37,6 +37,10 @@ export interface RootCauseAction {
   domain: string;
   /** Specific actionable rework and inspection procedure */
   action: string;
+  /** Probable physical cause */
+  probableCause: string;
+  /** Shopfloor rework directive */
+  reworkDirective: string;
 }
 
 /**
@@ -147,68 +151,71 @@ export function getSubsystemRootCauseAction(
   const versionStr = softwareVersion ? ` (${softwareVersion})` : '';
   const param = (paramName || '').trim();
 
+  let domain = 'Telemetry Sensor';
+  let action = 'Inspect channel wiring harness and calibrate transducer.';
+  let probableCause = 'Sensor reading deviated from baseline 3-sigma tolerance envelope.';
+  let reworkDirective = 'Inspect transducer wiring and zero-point calibration.';
+
   switch (category) {
     case 'hydraulic': {
+      domain = 'Hydraulic & DP Loop';
       if (param.includes('FCV61')) {
-        return {
-          domain: 'Hydraulic & DP Loop',
-          action: 'Inspect modulating bypass valve FCV61 mechanical seating, 0–10V command calibration, and verify valve travel feedback.'
-        };
+        probableCause = 'Modulating bypass valve FCV61 seat drift or analog command offset.';
+        reworkDirective = 'Inspect FCV61 mechanical seating, 0–10V command calibration, and verify travel feedback.';
+      } else {
+        probableCause = 'Secondary circuit flow restriction or loop pressure drop mismatch.';
+        reworkDirective = 'Verify loop differential pressure, inspect secondary filter restriction, and check bypass valve seating.';
       }
-      return {
-        domain: 'Hydraulic & DP Loop',
-        action: 'Verify loop differential pressure, inspect secondary filter restriction, and check modulating bypass valve FCV61 mechanical seating & calibration.'
-      };
+      action = reworkDirective;
+      break;
     }
     case 'pump': {
-      if (param.includes('P31') || param.includes('P41')) {
-        return {
-          domain: 'Pumps & VFD Drive',
-          action: `Inspect circulation pump ${param} inverter speed register, terminal connections, and verify minimum pump frequency (≥ 56% / 33.6 Hz).`
-        };
-      }
-      return {
-        domain: 'Pumps & VFD Drive',
-        action: 'Inspect circulation pump VFD inverter speed register, terminal connections, and verify minimum pump frequency (≥ 56% / 33.6 Hz).'
-      };
+      domain = 'Pumps & VFD Drive';
+      probableCause = param.includes('P31') || param.includes('P41')
+        ? `Circulation pump ${param} inverter command tracking or bus voltage anomaly.`
+        : 'Circulation pump VFD inverter speed deviation from setpoint profile.';
+      reworkDirective = `Inspect circulation pump VFD inverter speed register, terminal connections, and verify minimum pump frequency (≥ 56% / 33.6 Hz).`;
+      action = reworkDirective;
+      break;
     }
     case 'temperature': {
-      return {
-        domain: 'Thermal Loop & Probes',
-        action: 'Inspect temperature transmitter probe harness wiring, verify secondary chiller loop heat exchange, and check transducer zero/span.'
-      };
+      domain = 'Thermal Loop & Probes';
+      probableCause = 'RTD thermal sensor harness impedance or heat exchanger primary coolant delta.';
+      reworkDirective = 'Inspect temperature transmitter probe harness wiring, verify secondary chiller loop heat exchange, and check transducer zero/span.';
+      action = reworkDirective;
+      break;
     }
     case 'pressure': {
-      return {
-        domain: 'Pressure Transmitters',
-        action: 'Inspect transducer impulse lines for entrained air, verify sensor zero-offset calibration, and check reservoir vacuum seal.'
-      };
+      domain = 'Pressure Transmitters';
+      probableCause = 'Pressure transducer impulse line air entrainment or diaphragm offset drift.';
+      reworkDirective = 'Inspect transducer impulse lines for entrained air, verify sensor zero-offset calibration, and check reservoir vacuum seal.';
+      action = reworkDirective;
+      break;
     }
     case 'environmental': {
-      return {
-        domain: 'Ambient Cleanroom Conditions',
-        action: 'Verify test bay cleanroom HVAC dehumidifier control and record ambient room temperature/hygrometer before re-test.'
-      };
+      domain = 'Ambient Cleanroom Conditions';
+      probableCause = 'Test bay ambient HVAC relative humidity or room temperature excursion.';
+      reworkDirective = 'Verify test bay cleanroom HVAC dehumidifier control and record ambient room temperature/hygrometer before re-test.';
+      action = reworkDirective;
+      break;
     }
     case 'system': {
-      return {
-        domain: 'Firmware & System Configuration',
-        action: `Verify controller software build revision matches FTR specification${versionStr}.`
-      };
+      domain = 'Firmware & System Configuration';
+      probableCause = `Controller software build revision mismatch${versionStr}.`;
+      reworkDirective = `Verify controller software build revision matches FTR specification${versionStr}.`;
+      action = reworkDirective;
+      break;
     }
     case 'setpoint': {
-      return {
-        domain: 'Excitation Setpoints',
-        action: 'Verify Modbus excitation profile registers (Reg 200 Temp SP, Reg 201 DP SP, Reg 202 Flow SP) and link-local communications.'
-      };
-    }
-    default: {
-      return {
-        domain: 'Telemetry Sensor',
-        action: 'Inspect channel wiring harness and calibrate transducer.'
-      };
+      domain = 'Excitation Setpoints';
+      probableCause = 'Modbus excitation setpoint communication delay or register write fault.';
+      reworkDirective = 'Verify Modbus excitation profile registers (Reg 200 Temp SP, Reg 201 DP SP, Reg 202 Flow SP) and link-local communications.';
+      action = reworkDirective;
+      break;
     }
   }
+
+  return { domain, action, probableCause, reworkDirective };
 }
 
 /**
