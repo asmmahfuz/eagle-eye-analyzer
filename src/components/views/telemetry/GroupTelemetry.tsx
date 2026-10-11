@@ -3,8 +3,7 @@ import { Chart, registerables } from 'chart.js';
 import { 
   EagleEyeDataset, 
   SubsystemCategory, 
-  SUBSYSTEM_LABELS, 
-  ParameterSummary 
+  SUBSYSTEM_LABELS 
 } from '../../../types';
 import { 
   Activity, 
@@ -16,12 +15,9 @@ import {
   Gauge, 
   Thermometer, 
   ArrowLeft,
-  ChevronRight,
-  Layers,
-  Search,
-  Sliders,
-  Table
+  ChevronRight
 } from '../../Icons';
+import { createStageDwellPlugin } from './stageDwellPlugin';
 
 Chart.register(...registerables);
 
@@ -31,6 +27,8 @@ export interface GroupTelemetryProps {
   onSelectSensor: (sensorName: string) => void;
   onResetSubsystem?: () => void;
 }
+
+type TimebasePreset = 'all' | 'warmup' | 'ramp' | 'cooldown';
 
 // Curated high-contrast industrial telemetry color palette
 const TELEMETRY_PALETTE = [
@@ -123,9 +121,11 @@ export const GroupTelemetry: React.FC<GroupTelemetryProps> = ({
     setVisibleChannels(init);
   }, [selectedSubsystem, subChannels]);
 
-  // Optional Setpoint Overlays
+  // Optional Setpoint Overlays, Stage Dwells, and Timebase
   const [showFlowSp, setShowFlowSp] = useState(false);
   const [showDpSp, setShowDpSp] = useState(false);
+  const [showStageDwells, setShowStageDwells] = useState(true);
+  const [timebase, setTimebase] = useState<TimebasePreset>('all');
 
   const toggleChannel = (name: string) => {
     setVisibleChannels(prev => ({
@@ -233,12 +233,39 @@ export const GroupTelemetry: React.FC<GroupTelemetryProps> = ({
       });
     }
 
+    // Determine scale limits for timebase preset
+    let xMin: string | undefined = undefined;
+    let xMax: string | undefined = undefined;
+
+    if (timebase === 'warmup') {
+      xMin = labels[0];
+      const endIdx = measurements.findIndex(m => m['Time'] === 135);
+      xMax = endIdx !== -1 ? labels[endIdx] : labels[Math.min(5, labels.length - 1)];
+    } else if (timebase === 'ramp') {
+      const startIdx = measurements.findIndex(m => m['Time'] === 135);
+      const endIdx = measurements.findIndex(m => m['Time'] === 375);
+      xMin = startIdx !== -1 ? labels[startIdx] : labels[0];
+      xMax = endIdx !== -1 ? labels[endIdx] : labels[labels.length - 1];
+    } else if (timebase === 'cooldown') {
+      const startIdx = measurements.findIndex(m => m['Time'] === 375);
+      xMin = startIdx !== -1 ? labels[startIdx] : labels[0];
+      xMax = labels[labels.length - 1];
+    }
+
+    const stageDwellPlugin = createStageDwellPlugin({
+      stages,
+      measurements,
+      isDark,
+      enabled: showStageDwells
+    });
+
     chartInstanceRef.current = new Chart(ctx, {
       type: 'line',
       data: {
         labels,
         datasets
       },
+      plugins: [stageDwellPlugin],
       options: {
         responsive: true,
         maintainAspectRatio: false,
@@ -249,7 +276,7 @@ export const GroupTelemetry: React.FC<GroupTelemetryProps> = ({
         },
         plugins: {
           legend: {
-            display: false // Controlled via top chip strip
+            display: false
           },
           tooltip: {
             backgroundColor: isDark ? 'rgba(11, 17, 32, 0.95)' : 'rgba(255, 255, 255, 0.98)',
@@ -276,6 +303,8 @@ export const GroupTelemetry: React.FC<GroupTelemetryProps> = ({
         },
         scales: {
           x: {
+            min: xMin,
+            max: xMax,
             grid: { color: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.06)' },
             ticks: { color: '#64748b', font: { family: "'JetBrains Mono', monospace", size: 9.5 } }
           },
@@ -321,6 +350,8 @@ export const GroupTelemetry: React.FC<GroupTelemetryProps> = ({
     channelColorMap, 
     showFlowSp, 
     showDpSp, 
+    showStageDwells,
+    timebase,
     currentTheme, 
     stages, 
     subName, 
@@ -329,22 +360,10 @@ export const GroupTelemetry: React.FC<GroupTelemetryProps> = ({
     dpSpUnit
   ]);
 
-  // Channel search in table
-  const [tableSearch, setTableSearch] = useState('');
-
-  const filteredTableChannels = useMemo(() => {
-    if (!tableSearch.trim()) return subChannels;
-    const q = tableSearch.toLowerCase().trim();
-    return subChannels.filter(({ name, stat }) => 
-      name.toLowerCase().includes(q) || 
-      (stat.unit && stat.unit.toLowerCase().includes(q))
-    );
-  }, [subChannels, tableSearch]);
-
   const activeCurvesCount = Object.values(visibleChannels).filter(Boolean).length;
 
   return (
-    <section className="cad-tab-focused-card row-telemetry-group">
+    <section className="cad-tab-focused-card row-telemetry-group" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
       {/* 1. Header Bar: Subsystem Scope Telemetry */}
       <div className="row-header-bar">
         <div className="row-title-group">
@@ -395,21 +414,95 @@ export const GroupTelemetry: React.FC<GroupTelemetryProps> = ({
       </div>
 
       {/* 2. Subsystem Multi-Channel Overlay Waveform Card */}
-      <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-card)' }}>
+      <div style={{ padding: '12px 14px', flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--bg-card)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
           <div>
             <h3 className="cad-card-subtitle" style={{ margin: 0 }}>
-              Multi-Channel Transient Overlay & Dynamic Co-Registration
+              Multi-Channel Transient Laboratory Oscilloscope
             </h3>
             <span style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>
-              Simultaneous overlay of all {subChannels.length} channels in the {subName} subsystem across 525s cooldown test
+              Simultaneous overlay of all {subChannels.length} channels in the {subName} subsystem across 525s cooldown run
             </span>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+            {/* Timebase Presets */}
+            <div style={{ display: 'flex', border: '1px solid var(--border-color)', borderRadius: '5px', overflow: 'hidden' }}>
+              <button
+                type="button"
+                onClick={() => setTimebase('all')}
+                style={{
+                  padding: '3px 8px',
+                  fontSize: '10.5px',
+                  border: 'none',
+                  cursor: 'pointer',
+                  background: timebase === 'all' ? 'var(--accent-cyan)' : 'var(--bg-subtle)',
+                  color: timebase === 'all' ? '#ffffff' : 'var(--text-main)',
+                  fontWeight: timebase === 'all' ? 700 : 500
+                }}
+                title="View full 0s to 525s cooldown run"
+              >
+                All (0–525s)
+              </button>
+              <button
+                type="button"
+                onClick={() => setTimebase('warmup')}
+                style={{
+                  padding: '3px 8px',
+                  fontSize: '10.5px',
+                  border: 'none',
+                  borderLeft: '1px solid var(--border-color)',
+                  cursor: 'pointer',
+                  background: timebase === 'warmup' ? 'var(--accent-cyan)' : 'var(--bg-subtle)',
+                  color: timebase === 'warmup' ? '#ffffff' : 'var(--text-main)',
+                  fontWeight: timebase === 'warmup' ? 700 : 500
+                }}
+                title="Zoom into Warmup (Stages 1–3)"
+              >
+                Warmup (S1–S3)
+              </button>
+              <button
+                type="button"
+                onClick={() => setTimebase('ramp')}
+                style={{
+                  padding: '3px 8px',
+                  fontSize: '10.5px',
+                  border: 'none',
+                  borderLeft: '1px solid var(--border-color)',
+                  cursor: 'pointer',
+                  background: timebase === 'ramp' ? 'var(--accent-cyan)' : 'var(--bg-subtle)',
+                  color: timebase === 'ramp' ? '#ffffff' : 'var(--text-main)',
+                  fontWeight: timebase === 'ramp' ? 700 : 500
+                }}
+                title="Zoom into Load Ramp (Stages 4–6)"
+              >
+                Load Ramp (S4–S6)
+              </button>
+              <button
+                type="button"
+                onClick={() => setTimebase('cooldown')}
+                style={{
+                  padding: '3px 8px',
+                  fontSize: '10.5px',
+                  border: 'none',
+                  borderLeft: '1px solid var(--border-color)',
+                  cursor: 'pointer',
+                  background: timebase === 'cooldown' ? 'var(--accent-cyan)' : 'var(--bg-subtle)',
+                  color: timebase === 'cooldown' ? '#ffffff' : 'var(--text-main)',
+                  fontWeight: timebase === 'cooldown' ? 700 : 500
+                }}
+                title="Zoom into Steady-State (Stages 7–10)"
+              >
+                Steady-State (S7–S10)
+              </button>
+            </div>
+
+            <div className="divider-vertical" style={{ height: '16px' }}></div>
+
             <span style={{ fontSize: '11px', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>
-              Active: <strong>{activeCurvesCount}</strong> of {subChannels.length}
+              Active: <strong>{activeCurvesCount}</strong>/{subChannels.length}
             </span>
+
             <button
               onClick={() => setAllChannels(true)}
               className="cad-sheet-table-action-btn"
@@ -427,8 +520,8 @@ export const GroupTelemetry: React.FC<GroupTelemetryProps> = ({
           </div>
         </div>
 
-        {/* Setpoint Reference Overlay Toggles */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '10px', fontSize: '11px' }}>
+        {/* Setpoint Reference Overlay & Stage Dwell Toggles */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '8px', fontSize: '11px', flexWrap: 'wrap' }}>
           <span style={{ color: 'var(--text-dim)', fontWeight: 600 }}>Reference Overlays:</span>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', cursor: 'pointer', userSelect: 'none' }}>
             <input 
@@ -455,10 +548,23 @@ export const GroupTelemetry: React.FC<GroupTelemetryProps> = ({
               Secondary DP SP ({dpSpUnit})
             </span>
           </label>
+
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', cursor: 'pointer', userSelect: 'none' }}>
+            <input 
+              type="checkbox" 
+              checked={showStageDwells} 
+              onChange={(e) => setShowStageDwells(e.target.checked)} 
+              style={{ cursor: 'pointer', accentColor: 'var(--accent-cyan)' }}
+            />
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--accent-cyan)' }}>┊ S1..S10</span>
+            <span style={{ color: showStageDwells ? 'var(--text-main)' : 'var(--text-muted)' }}>
+              Stage Dwells
+            </span>
+          </label>
         </div>
 
         {/* Channel Visibility Chips Strip */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '12px', maxHeight: '90px', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '10px', maxHeight: '110px', overflowY: 'auto' }}>
           {subChannels.map(({ name, stat }) => {
             const isVisible = !!visibleChannels[name];
             const color = channelColorMap[name] || '#00d2ff';
@@ -467,7 +573,7 @@ export const GroupTelemetry: React.FC<GroupTelemetryProps> = ({
               : null;
 
             return (
-              <label 
+              <div 
                 key={`toggle-${name}`}
                 style={{
                   display: 'inline-flex',
@@ -477,7 +583,6 @@ export const GroupTelemetry: React.FC<GroupTelemetryProps> = ({
                   borderRadius: '14px',
                   border: `1px solid ${isVisible ? color : 'var(--border-color)'}`,
                   background: isVisible ? `${color}15` : 'var(--bg-subtle)',
-                  cursor: 'pointer',
                   fontSize: '10.5px',
                   userSelect: 'none',
                   transition: 'all 0.15s ease'
@@ -488,6 +593,7 @@ export const GroupTelemetry: React.FC<GroupTelemetryProps> = ({
                   checked={isVisible}
                   onChange={() => toggleChannel(name)}
                   style={{ cursor: 'pointer', accentColor: color }}
+                  title="Toggle waveform visibility"
                 />
                 <span 
                   style={{ 
@@ -498,7 +604,16 @@ export const GroupTelemetry: React.FC<GroupTelemetryProps> = ({
                     boxShadow: isVisible ? `0 0 5px ${color}` : 'none'
                   }} 
                 />
-                <span style={{ fontWeight: 600, fontFamily: 'var(--font-mono)', color: isVisible ? 'var(--text-main)' : 'var(--text-dim)' }}>
+                <span 
+                  onClick={() => onSelectSensor(name)}
+                  style={{ 
+                    fontWeight: 600, 
+                    fontFamily: 'var(--font-mono)', 
+                    color: isVisible ? 'var(--text-main)' : 'var(--text-dim)',
+                    cursor: 'pointer'
+                  }}
+                  title={`Open single-channel oscilloscope for ${name}`}
+                >
                   {name}
                 </span>
                 {settlingStr !== null && (
@@ -506,187 +621,31 @@ export const GroupTelemetry: React.FC<GroupTelemetryProps> = ({
                     ({settlingStr})
                   </span>
                 )}
-              </label>
+                <button
+                  type="button"
+                  onClick={() => onSelectSensor(name)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    padding: 0,
+                    margin: 0,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    color: 'var(--text-dim)'
+                  }}
+                  title={`Drill down into ${name}`}
+                >
+                  <ChevronRight size={10} />
+                </button>
+              </div>
             );
           })}
         </div>
 
-        {/* Chart Canvas Area */}
-        <div className="plot-canvas-area" style={{ height: '380px', minHeight: '340px', padding: 0 }}>
+        {/* Chart Canvas Area: Responsive laboratory oscilloscope */}
+        <div className="plot-canvas-area" style={{ height: '540px', minHeight: '460px', padding: 0, flex: 1 }}>
           <canvas ref={chartCanvasRef}></canvas>
-        </div>
-      </div>
-
-      {/* 3. Subsystem Dwell Statistics & SPC Table */}
-      <div style={{ padding: '14px', flex: 1, overflowY: 'auto' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
-          <div>
-            <h3 className="cad-card-subtitle" style={{ margin: 0, fontSize: '13px' }}>
-              Subsystem Channel Parametric Statistics & 3σ Tolerances
-            </h3>
-            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-              Process mean (μ), standard deviation (σ), statistical bounds, and worst-case margin clearance for all {subName} sensors
-            </span>
-          </div>
-
-          <div style={{ position: 'relative' }}>
-            <input
-              type="text"
-              placeholder="Filter channels..."
-              value={tableSearch}
-              onChange={(e) => setTableSearch(e.target.value)}
-              style={{
-                padding: '4px 8px 4px 26px',
-                fontSize: '11px',
-                border: '1px solid var(--border-color)',
-                borderRadius: '6px',
-                background: 'var(--bg-input)',
-                color: 'var(--text-main)',
-                width: '180px'
-              }}
-            />
-            <span style={{ position: 'absolute', left: '7px', top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }}>
-              <Search size={12} />
-            </span>
-          </div>
-        </div>
-
-        {/* Dwell Statistics Table */}
-        <div className="datasheet-table-wrapper" style={{ maxHeight: '380px', overflowY: 'auto' }}>
-          <table className="datasheet-table">
-            <thead>
-              <tr>
-                <th>Channel Tag</th>
-                <th>Unit</th>
-                <th>Process Mean (μ)</th>
-                <th>Std Dev (σ)</th>
-                <th>Lower 3σ (μ - 3σ)</th>
-                <th>Upper 3σ (μ + 3σ)</th>
-                <th>Peak (Max)</th>
-                <th>Minimum</th>
-                <th>Settling (525s)</th>
-                <th>Worst Margin</th>
-                <th>Verdict</th>
-                <th style={{ textAlign: 'right' }}>Transient Scope</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredTableChannels.map(({ name, stat }) => {
-                const isPass = stat.failCount === 0;
-                const color = channelColorMap[name] || '#00d2ff';
-
-                return (
-                  <tr key={`stat-row-${name}`} className={!isPass ? 'row-failed' : ''}>
-                    <td className="sensor-name-col">
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <span 
-                          style={{ 
-                            width: '8px', 
-                            height: '8px', 
-                            borderRadius: '50%', 
-                            backgroundColor: color 
-                          }} 
-                        />
-                        <button
-                          onClick={() => onSelectSensor(name)}
-                          style={{
-                            background: 'none',
-                            border: 'none',
-                            padding: 0,
-                            fontFamily: 'var(--font-mono)',
-                            fontWeight: 700,
-                            color: 'var(--accent-cyan)',
-                            cursor: 'pointer',
-                            textAlign: 'left'
-                          }}
-                          title={`Open single-channel oscilloscope for ${name}`}
-                        >
-                          {name}
-                        </button>
-                      </div>
-                    </td>
-
-                    <td className="unit-col font-mono text-dim">
-                      {stat.unit || '--'}
-                    </td>
-
-                    <td className="mean-col font-mono">
-                      {stat.nominalMean !== null && stat.nominalMean !== undefined
-                        ? stat.nominalMean.toFixed(2)
-                        : '--'}
-                    </td>
-
-                    <td className="sigma-col font-mono text-xs">
-                      {stat.processSigma !== null && stat.processSigma !== undefined
-                        ? stat.processSigma.toFixed(3)
-                        : '--'}
-                    </td>
-
-                    <td className="limit-col font-mono">
-                      {stat.low3Sigma !== null && stat.low3Sigma !== undefined
-                        ? stat.low3Sigma.toFixed(2)
-                        : '--'}
-                    </td>
-
-                    <td className="limit-col font-mono">
-                      {stat.high3Sigma !== null && stat.high3Sigma !== undefined
-                        ? stat.high3Sigma.toFixed(2)
-                        : '--'}
-                    </td>
-
-                    <td className="val-col font-mono">
-                      {stat.peak !== null && stat.peak !== undefined
-                        ? (typeof stat.peak === 'number' ? stat.peak.toFixed(2) : stat.peak)
-                        : '--'}
-                    </td>
-
-                    <td className="val-col font-mono">
-                      {stat.min !== null && stat.min !== undefined
-                        ? (typeof stat.min === 'number' ? stat.min.toFixed(2) : stat.min)
-                        : '--'}
-                    </td>
-
-                    <td className="val-col font-mono font-bold text-cyan">
-                      {stat.settling !== null && stat.settling !== undefined
-                        ? (typeof stat.settling === 'number' ? stat.settling.toFixed(2) : stat.settling)
-                        : '--'}
-                    </td>
-
-                    <td className="margin-col font-mono">
-                      {stat.worstMargin !== null && stat.worstMargin !== undefined ? (
-                        <span style={{ 
-                          fontWeight: 'bold', 
-                          color: stat.worstMargin < 0 ? 'var(--danger)' : 'var(--success)' 
-                        }}>
-                          {stat.worstMargin >= 0 ? '+' : ''}{stat.worstMargin.toFixed(2)}
-                        </span>
-                      ) : (
-                        '--'
-                      )}
-                    </td>
-
-                    <td className="status-col">
-                      <span className={`status-pill-small ${isPass ? 'pass' : 'fail'}`}>
-                        {isPass ? 'PASS' : `FAIL (${stat.failCount})`}
-                      </span>
-                    </td>
-
-                    <td style={{ textAlign: 'right' }}>
-                      <button
-                        onClick={() => onSelectSensor(name)}
-                        className="cad-sheet-table-action-btn"
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', fontSize: '10.5px' }}
-                        title={`Open single-test oscilloscope for ${name}`}
-                      >
-                        <span>Scope</span>
-                        <ChevronRight size={11} />
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
         </div>
       </div>
     </section>

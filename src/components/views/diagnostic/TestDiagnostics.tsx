@@ -4,11 +4,9 @@ import { runCanonicalDiagnostics, getFaultsForSensor } from '../../../engine/dia
 import { CanonicalFaultsSection } from './CanonicalFaultsSection';
 import { ChronologicalBreachTable } from './ChronologicalBreachTable';
 import { QaSignoffCard, QaItem } from './QaSignoffCard';
-import { 
-  getExcursionDeficitInfo, 
-  getSubsystemRootCauseAction, 
-  getChannelCorrectiveSteps 
-} from '../common/diagnosticUtils';
+import { PrescriptiveDirectivesCard } from './PrescriptiveDirectivesCard';
+import { getExcursionDeficitInfo } from '../common/diagnosticUtils';
+
 import {
   CheckCircle2,
   AlertTriangle,
@@ -30,7 +28,7 @@ export interface TestDiagnosticsProps {
 const TEST_QA_ITEMS: QaItem[] = [
   { id: 'wiring_connection', label: 'Transducer terminal wiring & shield grounding inspected' },
   { id: 'zero_calibration', label: 'Atmospheric zero and span calibration verified against reference' },
-  { id: 'operating_reproduction', label: 'Operating excursion reproduced and retested under steady-state conditions' },
+  { id: 'operating_reproduction', label: 'Failed condition reproduced and retested under steady-state conditions' },
   { id: 'channel_signoff', label: 'Transducer QA traveler verified and approved by test technician' }
 ];
 
@@ -89,18 +87,12 @@ export const TestDiagnostics: React.FC<TestDiagnosticsProps> = ({
     ? Number(((passCount / sensorEvaluations.length) * 100).toFixed(1)) 
     : 100;
 
-  const rootCause = useMemo(() => {
-    return getSubsystemRootCauseAction(category, selectedSensor, metadata.softwareVersion);
-  }, [category, selectedSensor, metadata.softwareVersion]);
-
-  const correctiveSteps = useMemo(() => {
-    return getChannelCorrectiveSteps(category, selectedSensor, stats);
-  }, [category, selectedSensor, stats]);
-
   const firstFail = failures[0];
   const firstFailStage = firstFail && firstFail.mIdx !== undefined
     ? Math.min(stages.length, Math.floor((firstFail.mIdx - 2) / 3) + 1)
     : 1;
+
+
 
   const toggleQaItem = (key: string) => {
     setQaChecklist(prev => ({ ...prev, [key]: !prev[key] }));
@@ -196,20 +188,16 @@ export const TestDiagnostics: React.FC<TestDiagnosticsProps> = ({
                 </div>
               </div>
 
-              {/* Corrective Steps Panel */}
-              <div className="action-recommendation-box">
-                <div className="action-title">
-                  <Wrench size={13} className="text-amber-400" />
-                  <span>Targeted Remediation & Physical Inspection Directives ({selectedSensor})</span>
-                </div>
-                <ol className="action-steps-list">
-                  {correctiveSteps.map((step, idx) => (
-                    <li key={idx}><strong>Step {idx + 1}:</strong> {step}</li>
-                  ))}
-                </ol>
-              </div>
+              {/* Prescriptive Directives & Directional Tuning Guidelines */}
+              <PrescriptiveDirectivesCard
+                parameter={selectedSensor}
+                measuredVal={typeof firstFail?.measured === 'number' ? firstFail.measured : undefined}
+                expectedRange={[firstFail?.lowLimit ?? 0, firstFail?.highLimit ?? 0]}
+                deficitStr={firstFail ? getExcursionDeficitInfo(firstFail).formatted : undefined}
+              />
             </div>
           )}
+
 
           {/* Canonical Faults Associated with this Sensor */}
           <CanonicalFaultsSection
@@ -228,7 +216,7 @@ export const TestDiagnostics: React.FC<TestDiagnosticsProps> = ({
               searchQuery=""
               onSearchChange={() => {}}
               onSelectSensor={onSelectSensor || (() => {})}
-              title={`${selectedSensor} Out-of-Tolerance Breaches (${failures.length} Excursions)`}
+              title={`${selectedSensor} Failure Log (${failures.length} Breaches)`}
             />
           )}
 

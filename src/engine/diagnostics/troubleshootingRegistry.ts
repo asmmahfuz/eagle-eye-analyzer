@@ -69,7 +69,7 @@ export const SHOPFLOOR_TROUBLESHOOTING_REGISTRY: Record<number, ShopfloorDirecti
   5: {
     faultId: 'FAULT-05',
     codeNumber: 5,
-    subsystemTitle: 'Secondary Loop Differential Pressure High Excursion',
+    subsystemTitle: 'Secondary Loop Differential Pressure Above Spec',
     requiredTools: ['Digital Manometer (0-50 PSI)', 'Transducer Calibrator', 'Purge Tool'],
     safetyAdvisory: 'Do not exceed 40 PSI secondary differential pressure limit.',
     inspectionStages: [
@@ -82,7 +82,7 @@ export const SHOPFLOOR_TROUBLESHOOTING_REGISTRY: Record<number, ShopfloorDirecti
   6: {
     faultId: 'FAULT-06',
     codeNumber: 6,
-    subsystemTitle: 'Secondary Loop Differential Pressure Low Excursion',
+    subsystemTitle: 'Secondary Loop Differential Pressure Below Spec',
     requiredTools: ['Digital Manometer', 'Multimeter', 'Modbus Diagnostic Sniffer'],
     safetyAdvisory: 'Check for two\'s complement rollover on negative differential values.',
     inspectionStages: [

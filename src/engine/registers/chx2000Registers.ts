@@ -97,3 +97,71 @@ export function getRegisterByName(name: string): ModbusRegisterDef | undefined {
 export function getRegisterAddressByName(name: string): number | undefined {
   return getRegisterByName(name)?.address;
 }
+
+/**
+ * Authoritative friendly channel names for CoolIT CHx2000 CDU telemetry
+ * Conforming to Invariant 13 (Strict 5-Column Core Matrix)
+ */
+export const CHANNEL_FRIENDLY_NAMES: Record<string, string> = {
+  'FT01': 'Secondary Flow FT01',
+  'FT61': 'Primary Flow FT61',
+  'TT01': 'Secondary Supply Temp TT01',
+  'TT02': 'Secondary Return Temp TT02',
+  'TT31': 'Supply Temp TT31',
+  'TT41': 'Pump 41 Temp TT41',
+  'TT61': 'Primary Supply Temp TT61',
+  'TT62': 'Primary Return Temp TT62',
+  'TT51': 'Reservoir Upper Temp TT51',
+  'TT52': 'Reservoir Lower Temp TT52',
+  'TT45': 'Cabinet Enclosure Temp TT45',
+  'PT01': 'Secondary Supply Pressure PT01',
+  'PT02': 'Secondary Return Pressure PT02',
+  'PT11': 'Expansion Tank Vacuum PT11',
+  'PT21': 'Pump Suction Pressure PT21',
+  'PT31': 'Pump 31 Suction PT31',
+  'PT32': 'Pump 31 Discharge PT32',
+  'PT41': 'Pump 41 Suction PT41',
+  'PT42': 'Pump 42 Discharge PT42',
+  'PT51': 'Primary Inlet Filter PT51',
+  'PT52': 'Primary Outlet Filter PT52',
+  'PT53': 'Heat Exchanger PT53',
+  'PT61': 'Primary Supply Pressure PT61',
+  'PT62': 'Primary Return Pressure PT62',
+  'TT01/TT02': 'Secondary Delta Temp (TT01/TT02)',
+  'TT31/TT41': 'Pump Heat Delta Temp (TT31/TT41)',
+  'TT61/TT62': 'Primary Delta Temp (TT61/TT62)',
+  'TT51/TT52': 'Reservoir Delta Temp (TT51/TT52)',
+  'PT01/PT02': 'Secondary Delta Pressure (PT01/PT02)',
+  'PT32/PT42': 'Pump Discharge Delta (PT32/PT42)',
+  'PT61/PT62': 'Primary Delta Pressure (PT61/PT62)',
+  'PT51/PT52': 'Primary Filter Delta (PT51/PT52)',
+  'Secondary DP (Supply - Return)': 'Secondary DP',
+  'Primary DP (Supply - Return)': 'Primary DP',
+  'Pump 31 Filter DP': 'Pump 31 Filter DP',
+  'Pump 41 Filter DP': 'Pump 41 Filter DP',
+  'Primary Filter 53 DP': 'Primary Filter 53 DP',
+  'P31 Speed %': 'Pump 31 Speed',
+  'P41 Speed %': 'Pump 41 Speed',
+  'FCV61 Actual Flow%': 'Primary FCV61 Flow',
+  'FCV61 Actual Open%': 'Primary FCV61 Opening',
+  'Air Humidity': 'Ambient Relative Humidity',
+  'Air Temperature': 'Ambient Air Temperature',
+  'Secondary Flow Setpoint': 'Secondary Flow Target',
+  'Secondary DP Setpoint': 'Secondary DP Target',
+  'Secondary Temperature Setpoint': 'Secondary Temp Target',
+  'Status (0-off 1-on)': 'CDU Operating Run Status',
+  'Group (0-standalone 1-Group lead 2-Group follow)': 'Lead/Follow Cluster Mode',
+  'Program version': 'PLC Firmware Version'
+};
+
+export function getFriendlyChannelName(channelName: string): string {
+  if (!channelName) return '';
+  const trimmed = channelName.trim();
+  if (CHANNEL_FRIENDLY_NAMES[trimmed]) return CHANNEL_FRIENDLY_NAMES[trimmed];
+  const reg = getRegisterByName(trimmed);
+  if (reg && reg.description) {
+    if (trimmed.length <= 5) return `${reg.description} (${trimmed})`;
+    return reg.description;
+  }
+  return trimmed;
+}

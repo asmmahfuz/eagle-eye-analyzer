@@ -37,7 +37,7 @@ export function buildDiagnosticsGuideSheet(
         findingStr = 'Channel / pump hardware not configured on this unit model.';
       } else if (res.isTriggered || res.status === 'fail') {
         statusStr = 'TRIGGERED (FAIL)';
-        findingStr = res.summary || 'Out-of-tolerance mathematical excursion detected.';
+        findingStr = res.summary || 'Out-of-tolerance deviation detected.';
       } else if (res.status === 'warn') {
         statusStr = 'CAUTION (WARN)';
         findingStr = res.summary || 'Statistical 3σ margin breaches observed on associated sensors.';

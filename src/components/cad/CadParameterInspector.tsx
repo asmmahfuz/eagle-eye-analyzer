@@ -3,6 +3,9 @@ import { EagleEyeDataset, ParameterSummary, SubsystemCategory, SUBSYSTEM_LABELS 
 import {
   Sliders,
   X,
+  Minus,
+  Maximize2,
+  Minimize2,
   Info
 } from '../Icons';
 import { CadInspectorStandby } from './CadInspectorStandby';
@@ -19,6 +22,14 @@ interface CadParameterInspectorProps {
   onClose: () => void;
   onSelectSensor: (sensorName: string | null) => void;
   onSelectSubsystem?: (subsystem: SubsystemCategory | null) => void;
+  showModbusOverlays?: boolean;
+  onOpenTerminalModbus?: () => void;
+  isMinimized?: boolean;
+  onMinimize?: () => void;
+  isMaximized?: boolean;
+  onToggleMaximize?: () => void;
+  onRestore?: () => void;
+  style?: React.CSSProperties;
 }
 
 export const CadParameterInspector: React.FC<CadParameterInspectorProps> = ({
@@ -28,7 +39,15 @@ export const CadParameterInspector: React.FC<CadParameterInspectorProps> = ({
   activeModelId = 'CHx2000',
   onClose,
   onSelectSensor,
-  onSelectSubsystem
+  onSelectSubsystem,
+  showModbusOverlays = false,
+  onOpenTerminalModbus,
+  isMinimized = false,
+  onMinimize,
+  isMaximized = false,
+  onToggleMaximize,
+  onRestore,
+  style
 }) => {
   const modelProfile = getModelProfile(activeModelId);
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
@@ -52,8 +71,44 @@ export const CadParameterInspector: React.FC<CadParameterInspectorProps> = ({
 
   const isFailed = summary ? summary.failCount > 0 : false;
 
+  // Minimized Collapsed Vertical Strip State
+  if (isMinimized) {
+    return (
+      <aside
+        className="cad-dock-panel cad-dock-minimized cad-dock-minimized-right"
+        title="Parameter Inspector (Minimized) • Click to restore"
+        onClick={onRestore || onMinimize}
+      >
+        <div className="cad-dock-min-header">
+          <Sliders size={14} className="cad-dock-icon" />
+        </div>
+        <div className="cad-dock-min-label">
+          <span>PARAMETER INSPECTOR</span>
+        </div>
+        <div className="cad-dock-min-actions" onClick={e => e.stopPropagation()}>
+          <button
+            type="button"
+            className="cad-dock-btn"
+            title="Restore Parameter Inspector"
+            onClick={onRestore || onMinimize}
+          >
+            <Maximize2 size={12} />
+          </button>
+          <button
+            type="button"
+            className="cad-dock-btn cad-dock-btn-close"
+            title="Close Inspector (Ctrl+2)"
+            onClick={onClose}
+          >
+            <X size={12} />
+          </button>
+        </div>
+      </aside>
+    );
+  }
+
   return (
-    <aside className="cad-dock-panel cad-parameter-inspector-dock" aria-label="Parameter Inspector">
+    <aside className="cad-dock-panel cad-parameter-inspector-dock" style={style} aria-label="Parameter Inspector">
       {/* Inspector Dock Header */}
       <div className="cad-dock-header">
         <div className="cad-dock-title">
@@ -61,8 +116,29 @@ export const CadParameterInspector: React.FC<CadParameterInspectorProps> = ({
           <span>Parameter Inspector</span>
         </div>
         <div className="cad-dock-actions">
-          <span className="cad-dock-pill-docked">Docked</span>
+          <span className="cad-dock-pill-docked">{isMaximized ? 'Full Screen' : 'Docked'}</span>
+          {onMinimize && (
+            <button
+              type="button"
+              className="cad-dock-btn"
+              title="Minimize Parameter Inspector"
+              onClick={onMinimize}
+            >
+              <Minus size={12} />
+            </button>
+          )}
+          {onToggleMaximize && (
+            <button
+              type="button"
+              className={`cad-dock-btn ${isMaximized ? 'active' : ''}`}
+              title={isMaximized ? "Restore Normal Size (Esc)" : "Full App Screen (Parameter Inspector)"}
+              onClick={onToggleMaximize}
+            >
+              {isMaximized ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+            </button>
+          )}
           <button
+            type="button"
             className="cad-dock-btn cad-dock-btn-close"
             title="Close Inspector (Ctrl+2)"
             onClick={onClose}
@@ -83,7 +159,9 @@ export const CadParameterInspector: React.FC<CadParameterInspectorProps> = ({
             <div className={`cad-inspector-target-card ${isFailed ? 'failed' : 'passed'}`}>
               <div className="cad-target-card-top">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <CadRegisterBadge channelName={selectedSensor} showPrefix style={{ fontSize: '10.5px' }} />
+                  {showModbusOverlays && (
+                    <CadRegisterBadge channelName={selectedSensor} showPrefix style={{ fontSize: '10.5px' }} />
+                  )}
                   <span className="cad-target-param-tag">{selectedSensor}</span>
                 </div>
                 <span className={`cad-target-verdict-badge ${isFailed ? 'fail' : 'pass'}`}>
@@ -112,19 +190,21 @@ export const CadParameterInspector: React.FC<CadParameterInspectorProps> = ({
                       <td className="cad-prop-key">Tag Name</td>
                       <td className="cad-prop-val font-mono">{selectedSensor}</td>
                     </tr>
-                    <tr>
-                      <td className="cad-prop-key">Modbus Address</td>
-                      <td className="cad-prop-val font-mono">
-                        {(() => {
-                          const reg = getRegisterByName(selectedSensor);
-                          return reg ? (
-                            <span className="cad-reg-badge" style={{ padding: '1px 6px', background: 'rgba(168, 85, 247, 0.15)', border: '1px solid rgba(168, 85, 247, 0.4)', borderRadius: '3px', color: '#C084FC' }}>
-                              Reg {reg.address} (0x{reg.address.toString(16).toUpperCase().padStart(4, '0')})
-                            </span>
-                          ) : '--';
-                        })()}
-                      </td>
-                    </tr>
+                    {showModbusOverlays && (
+                      <tr>
+                        <td className="cad-prop-key">Modbus Address</td>
+                        <td className="cad-prop-val font-mono">
+                          {(() => {
+                            const reg = getRegisterByName(selectedSensor);
+                            return reg ? (
+                              <span className="cad-reg-badge" style={{ padding: '1px 6px', background: 'rgba(168, 85, 247, 0.15)', border: '1px solid rgba(168, 85, 247, 0.4)', borderRadius: '3px', color: '#C084FC' }}>
+                                Reg {reg.address} (0x{reg.address.toString(16).toUpperCase().padStart(4, '0')})
+                              </span>
+                            ) : '--';
+                          })()}
+                        </td>
+                      </tr>
+                    )}
                     <tr>
                       <td className="cad-prop-key">Subsystem</td>
                       <td className="cad-prop-val">{summary.category.toUpperCase()}</td>
@@ -185,7 +265,7 @@ export const CadParameterInspector: React.FC<CadParameterInspectorProps> = ({
                       </td>
                     </tr>
                     <tr>
-                      <td className="cad-prop-key">Max |Z| Deviation</td>
+                      <td className="cad-prop-key">Max |Z| Error</td>
                       <td className="cad-prop-val font-mono">
                         <span className={`cad-z-badge ${summary.maxZScore && summary.maxZScore > 3.0 ? 'z-breach' : 'z-ok'}`}>
                           {summary.maxZScore !== null ? `${summary.maxZScore.toFixed(2)} σ` : '--'}
@@ -259,17 +339,42 @@ export const CadParameterInspector: React.FC<CadParameterInspectorProps> = ({
                 onClick={() => toggleSection('modbus')}
               >
                 <span className="cad-prop-chevron">{expandedSections.modbus ? '▾' : '▸'}</span>
-                <span className="cad-prop-group-title">Modbus & Signal Conditioning</span>
+                <span className="cad-prop-group-title">
+                  {showModbusOverlays ? 'Modbus & Signal Conditioning' : 'Signal Conditioning & Specs'}
+                </span>
               </div>
               {expandedSections.modbus && (
                 <table className="cad-prop-table">
                   <tbody>
                     <tr>
-                      <td className="cad-prop-key">Modbus Address</td>
+                      <td className="cad-prop-key">Modbus Register</td>
                       <td className="cad-prop-val font-mono">
                         {(() => {
                           const reg = getRegisterByName(selectedSensor);
-                          return reg ? `Reg ${reg.address} (PLC Bus 502)` : 'Modbus TCP : 502';
+                          return reg ? (
+                            <button
+                              type="button"
+                              onClick={onOpenTerminalModbus}
+                              style={{
+                                background: 'transparent',
+                                border: 'none',
+                                color: 'var(--accent-cyan, #00D2FF)',
+                                fontSize: '11px',
+                                fontFamily: 'var(--font-mono, monospace)',
+                                cursor: 'pointer',
+                                padding: 0,
+                                textDecoration: 'underline',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px'
+                              }}
+                              title={`View Reg ${reg.address} in Terminal Modbus Map`}
+                            >
+                              Reg {reg.address} (View in Terminal ↓)
+                            </button>
+                          ) : (
+                            <span style={{ color: 'var(--text-muted)' }}>Internal Metric</span>
+                          );
                         })()}
                       </td>
                     </tr>

@@ -29,6 +29,7 @@ export type SubsystemCategory =
 export type CadMainView = 
   | 'datasheet' 
   | 'telemetry' 
+  | 'dynamics' 
   | 'diagnostics';
 
 export type ScopeTier = 
@@ -91,7 +92,7 @@ export interface ParameterSummary {
   low3Sigma: number | null;     // Settling/steady-state lower 3σ limit (μ - 3σ)
   high3Sigma: number | null;    // Settling/steady-state upper 3σ limit (μ + 3σ)
   threeSigmaSpan: number | null;// Settling/steady-state 3σ half-span
-  maxZScore: number | null;     // Maximum observed |Z| across all stages (worst sigma excursion)
+  maxZScore: number | null;     // Maximum observed |Z| across all stages (worst sigma deviation)
   totalChecks: number;
   failCount: number;
   warnCount: number;

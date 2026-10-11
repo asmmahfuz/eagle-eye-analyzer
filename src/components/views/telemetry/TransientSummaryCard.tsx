@@ -42,7 +42,7 @@ export const TransientSummaryCard: React.FC<TransientSummaryCardProps> = ({ data
             Dynamic Transient Analytics & 10-Stage Setpoint Tracking Engine
           </strong>
           <span style={{ fontSize: '10.5px', color: 'var(--text-muted, #64748b)' }}>
-            (Excitation_Profile.py Holding Registers 200–202)
+            (Excitation_Profile.py 10-Stage Dynamic Setpoints)
           </span>
         </div>
 

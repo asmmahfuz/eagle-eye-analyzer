@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { EagleEyeDataset, SubsystemCategory, SUBSYSTEM_LABELS, EvaluatedPoint } from '../../../types';
+import React, { useState, useMemo } from 'react';
+import { EagleEyeDataset, SubsystemCategory, SUBSYSTEM_LABELS } from '../../../types';
 import { 
   CheckCircle2, 
   XCircle, 
@@ -12,18 +12,16 @@ import {
   Thermometer, 
   ArrowLeft,
   Layers,
-  Cpu as ModbusIcon,
-  Sliders,
   BarChart2
 } from '../../Icons';
-import { CadRegisterBadge } from '../../cad/CadRegisterBadge';
-import { getRegisterByName } from '../../../engine/registers';
+import { getFriendlyChannelName } from '../../../engine/registers';
 import { 
   getProgrammedStage, 
   calculateStageTransientMetrics, 
   calculateChannelTransientProfile 
 } from '../../../engine/excitation';
 import { TransientBadge } from '../common/TransientBadge';
+import { CadAdvancedMetricsModal } from '../../cad/CadAdvancedMetricsModal';
 
 export interface TestDataSheetProps {
   dataset: EagleEyeDataset;
@@ -40,20 +38,23 @@ export const TestDataSheet: React.FC<TestDataSheetProps> = ({
   onBackToOverview,
   onSelectSensor
 }) => {
+  const [showMetricsModal, setShowMetricsModal] = useState<boolean>(false);
+  const [selectedModalStage, setSelectedModalStage] = useState<number | null>(null);
+
   const { 
     metadata, 
     evaluatedChecks, 
     parameterStats, 
     stages, 
     unitMap, 
-    measurements,
-    limits 
+    measurements
   } = dataset;
 
   const stats = parameterStats[selectedSensor];
   const unit = stats?.unit || unitMap[selectedSensor] || '';
   const category: SubsystemCategory = stats?.category || 'other';
   const subName = SUBSYSTEM_LABELS[category] || category;
+  const friendlyName = getFriendlyChannelName(selectedSensor);
 
   const flowSpUnit = unitMap['Secondary Flow Setpoint'] || 'LPM';
   const dpSpUnit = unitMap['Secondary DP Setpoint'] || 'psi';
@@ -71,15 +72,10 @@ export const TestDataSheet: React.FC<TestDataSheetProps> = ({
 
   const hasFail = failures.length > 0;
   const isPass = !hasFail;
-
-  // Mean value fallback from raw measurements if nominalMean is missing
-  const meanValue = useMemo(() => {
-    const validVals = measurements
-      .map(m => m[selectedSensor])
-      .filter((v): v is number => typeof v === 'number');
-    if (validVals.length === 0) return null;
-    return validVals.reduce((a, b) => a + b, 0) / validVals.length;
-  }, [measurements, selectedSensor]);
+  const totalChecks = sensorEvaluations.length > 0 ? sensorEvaluations.length : (stats?.totalChecks ?? stages.length);
+  const passRate = totalChecks > 0 
+    ? Number((((totalChecks - failures.length) / totalChecks) * 100).toFixed(1))
+    : 100;
 
   // Subsystem icon helper
   const getSubsystemIcon = (cat: SubsystemCategory) => {
@@ -101,13 +97,6 @@ export const TestDataSheet: React.FC<TestDataSheetProps> = ({
     }
   };
 
-  // Authoritative Modbus register definition
-  const regDef = useMemo(() => getRegisterByName(selectedSensor), [selectedSensor]);
-  const modbusAddress = useMemo(() => {
-    if (regDef) return `Address ${regDef.address} (${regDef.displayName})`;
-    return 'Standard PLC Holding Register';
-  }, [regDef]);
-
   // Dynamic transient profile across all 10 stages
   const transientProfile = useMemo(() => {
     return calculateChannelTransientProfile(selectedSensor, dataset);
@@ -125,25 +114,58 @@ export const TestDataSheet: React.FC<TestDataSheetProps> = ({
         ? calculateStageTransientMetrics(selectedSensor, progStage, val, unit)
         : null;
 
+      // Condition text
+      let conditionText = `Stage ${stg.stageNum} (${stg.timeSec}s)`;
+      if (stg.timeSec === 525 || stg.stageNum === 10) {
+        conditionText = `Steady-State (525s) — ${progStage?.dpSp ?? 25} psi DP Dwell`;
+      } else if (progStage?.dpSp !== undefined) {
+        conditionText = `Stage ${stg.stageNum} (${stg.timeSec}s) — ${progStage.dpSp} psi DP Dwell`;
+      } else if (stg.dpSp !== null && stg.dpSp !== undefined) {
+        conditionText = `Stage ${stg.stageNum} (${stg.timeSec}s) — ${stg.dpSp} psi DP Dwell`;
+      }
+
+      // Range text
+      let rangeText = '--';
+      const lowLimit = pt?.lowLimit ?? stats?.low3Sigma;
+      const highLimit = pt?.highLimit ?? stats?.high3Sigma;
+      if (typeof lowLimit === 'number' && typeof highLimit === 'number') {
+        rangeText = `[${lowLimit.toFixed(2)} ~ ${highLimit.toFixed(2)} ${unit}]`;
+      } else if (typeof lowLimit === 'number') {
+        rangeText = `[≥ ${lowLimit.toFixed(2)} ${unit}]`;
+      } else if (typeof highLimit === 'number') {
+        rangeText = `[≤ ${highLimit.toFixed(2)} ${unit}]`;
+      } else if (stats?.requiredRangeSample) {
+        rangeText = stats.requiredRangeSample;
+      }
+
+      const valStr = typeof val === 'number' 
+        ? `${val.toFixed(2)} ${unit}`
+        : (val !== null && val !== undefined ? `${String(val)} ${unit}` : '--');
+
       return {
         stage: stg,
+        stageNum: stg.stageNum,
+        timeSec: stg.timeSec,
         measured: val,
+        measuredStr: valStr,
+        conditionText,
+        rangeText,
         evalPoint: pt,
         isFailed,
         transientMetrics
       };
     });
-  }, [stages, measurements, sensorEvaluations, selectedSensor, unit]);
+  }, [stages, measurements, sensorEvaluations, selectedSensor, unit, stats]);
 
   return (
     <section className="cad-tab-focused-card row-data-sheet">
-      {/* Subsystem & Channel Navigation Banner */}
+      {/* Subsystem & Channel Navigation Banner (Clean: No Register Badges) */}
       <div className="cad-subsystem-filter-banner">
         <div className="filter-info" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <span style={{ opacity: 0.7 }}>TELEMETRY CHANNEL:</span>
-          <CadRegisterBadge channelName={selectedSensor} showPrefix style={{ fontSize: '11px', padding: '2px 6px' }} />
-          <strong className="text-cyan-400 font-mono" style={{ fontSize: '13px' }}>{selectedSensor}</strong>
-          <span className="cad-badge-unit" style={{ padding: '1px 6px', fontSize: '10px', background: 'rgba(0,210,255,0.12)', border: '1px solid rgba(0,210,255,0.3)', borderRadius: '3px', color: 'var(--accent-cyan)' }}>
+          <strong className="text-cyan-400 font-mono" style={{ fontSize: '13px' }}>{friendlyName}</strong>
+          <span style={{ fontSize: '11px', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>({selectedSensor})</span>
+          <span className="cad-badge-unit" style={{ padding: '1px 6px', fontSize: '10px', background: 'rgba(2, 132, 199, 0.12)', border: '1px solid rgba(2, 132, 199, 0.3)', borderRadius: '3px', color: 'var(--accent-cyan)' }}>
             {unit || '--'}
           </span>
           <span style={{ opacity: 0.6, fontSize: '11px' }}>• {subName} Domain</span>
@@ -176,7 +198,7 @@ export const TestDataSheet: React.FC<TestDataSheetProps> = ({
         </div>
       </div>
 
-      {/* Row Header Bar: Single-Channel Specifications */}
+      {/* Row Header Bar */}
       <div className="row-header-bar">
         <div className="row-title-group">
           <div className="overview-icon-badge">
@@ -185,18 +207,29 @@ export const TestDataSheet: React.FC<TestDataSheetProps> = ({
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <h2 className="sensor-main-title" style={{ margin: 0 }}>
-                {selectedSensor}
+                {friendlyName}
               </h2>
               <span style={{ 
                 fontFamily: 'var(--font-mono)', 
                 fontSize: '11px', 
                 color: 'var(--accent-cyan)', 
-                background: 'rgba(0, 210, 255, 0.08)', 
+                background: 'rgba(2, 132, 199, 0.08)', 
                 padding: '2px 6px', 
                 borderRadius: '3px',
-                border: '1px solid rgba(0, 210, 255, 0.2)'
+                border: '1px solid rgba(2, 132, 199, 0.2)'
               }}>
-                {unit}
+                Tag: {selectedSensor}
+              </span>
+              <span style={{ 
+                fontFamily: 'var(--font-mono)', 
+                fontSize: '11px', 
+                color: 'var(--success)', 
+                background: 'rgba(5, 150, 105, 0.08)', 
+                padding: '2px 6px', 
+                borderRadius: '3px',
+                border: '1px solid rgba(5, 150, 105, 0.2)'
+              }}>
+                {unit || '--'}
               </span>
             </div>
             <span className="unit-metadata-sub">
@@ -221,507 +254,258 @@ export const TestDataSheet: React.FC<TestDataSheetProps> = ({
         </div>
       </div>
 
-      {/* 6 Single-Test KPI Metric Cards */}
-      <div className="datasheet-metrics-strip">
+      {/* 4 High-Signal Channel KPI Cards */}
+      <div className="datasheet-metrics-strip" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+        {/* Card 1: Hardware Unit & WO */}
+        <div className="spec-metric-card">
+          <span className="spec-label">Hardware Unit & WO</span>
+          <span className="spec-value text-cyan-500 font-mono font-bold">
+            Serial: {metadata.serialNumber || 'N/A'} | {metadata.workOrderNumber ? (metadata.workOrderNumber.startsWith('WO') ? metadata.workOrderNumber : `WO${metadata.workOrderNumber}`) : 'WO-N/A'}
+          </span>
+          <span className="spec-sub">
+            Channel: {selectedSensor} ({subName})
+          </span>
+        </div>
+
+        {/* Card 2: Channel Checks */}
         <div className="spec-metric-card">
           <span className="spec-label">Total Evaluated Checks</span>
           <span className="spec-value text-slate-100 font-mono font-bold">
-            {stats?.totalChecks ?? sensorEvaluations.length}
-          </span>
-          <span className="spec-sub">{stages.length} Operating Stages</span>
-        </div>
-
-        <div className="spec-metric-card">
-          <span className="spec-label">Out of Tolerance</span>
-          <span className={`spec-value ${hasFail ? 'text-rose-400' : 'text-emerald-400'} font-mono font-bold`}>
-            {failures.length}
+            {totalChecks} Checks
           </span>
           <span className="spec-sub">
-            {hasFail && stats?.maxZScore !== null && stats?.maxZScore !== undefined 
-              ? `Max Deviation: |Z| = ${stats.maxZScore.toFixed(2)}σ` 
-              : 'Zero statistical excursions'}
+            Across {stages.length} Operating Stages (15s – 525s)
           </span>
         </div>
 
+        {/* Card 3: First-Pass Yield */}
         <div className="spec-metric-card">
-          <span className="spec-label">Settling Value (525s)</span>
-          <span className="spec-value text-emerald-400 font-mono font-bold">
-            {stats?.settling !== null && stats?.settling !== undefined 
-              ? `${typeof stats.settling === 'number' ? stats.settling.toFixed(2) : stats.settling} ${unit}` 
-              : '--'}
-          </span>
-          <span className="spec-sub">Steady-state final reading</span>
-        </div>
-
-        <div className="spec-metric-card">
-          <span className="spec-label">Process Mean (μ)</span>
-          <span className="spec-value text-cyan-400 font-mono font-bold">
-            {stats?.nominalMean !== null && stats?.nominalMean !== undefined 
-              ? `${stats.nominalMean.toFixed(2)} ${unit}` 
-              : (meanValue !== null ? `${meanValue.toFixed(2)} ${unit}` : '--')}
-          </span>
-          <span className="spec-sub">Nominal distribution center</span>
-        </div>
-
-        <div className="spec-metric-card">
-          <span className="spec-label">Process Sigma (σ)</span>
-          <span className="spec-value text-amber-300 font-mono font-bold">
-            {stats?.processSigma !== null && stats?.processSigma !== undefined 
-              ? `${stats.processSigma.toFixed(3)} ${unit}` 
-              : '--'}
+          <span className="spec-label">Compliance Yield</span>
+          <span className="spec-value text-emerald-500 font-mono font-bold">
+            {passRate}% In-Spec
           </span>
           <span className="spec-sub">
-            {stats?.threeSigmaSpan !== null && stats?.threeSigmaSpan !== undefined 
-              ? `Tolerance: ±${stats.threeSigmaSpan.toFixed(2)} ${unit} (±3σ)` 
-              : '1-Sigma process std dev'}
+            {totalChecks - failures.length} Passed • {failures.length} Violations
           </span>
         </div>
 
-        <div className="spec-metric-card highlight">
-          <span className="spec-label">Worst Margin Buffer</span>
-          <span className={`spec-value ${stats?.worstMargin !== null && stats?.worstMargin !== undefined && stats.worstMargin < 0 ? 'text-rose-400 font-bold' : 'text-emerald-400 font-bold'} font-mono`}>
-            {stats?.worstMargin !== null && stats?.worstMargin !== undefined 
-              ? `${stats.worstMargin >= 0 ? '+' : ''}${stats.worstMargin.toFixed(2)} ${unit}` 
-              : '--'}
-          </span>
+        {/* Card 4: Channel Verdict */}
+        <div className={`spec-metric-card ${isPass ? 'highlight' : ''}`} style={{ borderLeft: `3px solid ${isPass ? 'var(--success)' : 'var(--danger)'}` }}>
+          <span className="spec-label">Channel Acceptance Verdict</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '1px' }}>
+            <span className={`cad-stage-badge ${isPass ? 'pass' : 'fail'}`} style={{ fontSize: '12px', padding: '2px 8px' }}>
+              {isPass ? 'PASS' : 'FAIL'}
+            </span>
+            <span className="font-mono text-xs" style={{ color: isPass ? 'var(--success)' : 'var(--danger)' }}>
+              {isPass ? 'All Checks Passed' : `${failures.length} Failed`}
+            </span>
+          </div>
           <span className="spec-sub">
-            {stats?.worstMargin !== null && stats?.worstMargin !== undefined && stats.worstMargin < 0 
-              ? 'Deficit below required 3σ limit' 
-              : 'Safety clearance buffer'}
+            {isPass ? 'Zero failures detected' : 'Requires engineering review / tuning'}
           </span>
         </div>
       </div>
 
-      {/* Single-Channel 10-Stage Operating Progression Cards */}
+      {/* Single-Channel 10-Stage Operating Progression & Verification Matrix */}
       <div style={{ padding: '0 14px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px', marginBottom: '6px' }}>
-          <h3 className="cad-card-subtitle" style={{ margin: 0 }}>
-            10-Stage Operating Progression for {selectedSensor} (15s – 525s)
-          </h3>
-          <span style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>
-            Stage-by-stage measured dwell value vs target setpoints and 3-sigma tolerance boundaries
-          </span>
-        </div>
-
-        <div className="stages-cards-wrapper">
-          <div className="stages-grid-compact">
-            {stageEvaluations.map(({ stage, measured, evalPoint, isFailed, transientMetrics }) => {
-              const valStr = typeof measured === 'number' 
-                ? measured.toFixed(2) 
-                : (measured !== null && measured !== undefined ? String(measured) : '--');
-              
-              const lowLimitStr = evalPoint?.lowLimit !== null && evalPoint?.lowLimit !== undefined 
-                ? evalPoint.lowLimit.toFixed(2) 
-                : (stats?.low3Sigma !== null && stats?.low3Sigma !== undefined ? stats.low3Sigma.toFixed(2) : '--');
-
-              const highLimitStr = evalPoint?.highLimit !== null && evalPoint?.highLimit !== undefined 
-                ? evalPoint.highLimit.toFixed(2) 
-                : (stats?.high3Sigma !== null && stats?.high3Sigma !== undefined ? stats.high3Sigma.toFixed(2) : '--');
-
-              const zScoreStr = evalPoint?.zScore !== null && evalPoint?.zScore !== undefined 
-                ? `${evalPoint.zScore > 0 ? '+' : ''}${evalPoint.zScore.toFixed(2)}σ` 
-                : null;
-
-              const marginStr = evalPoint?.marginBuffer !== null && evalPoint?.marginBuffer !== undefined 
-                ? `${evalPoint.marginBuffer >= 0 ? '+' : ''}${evalPoint.marginBuffer.toFixed(2)} ${unit}` 
-                : null;
-
-              return (
-                <div 
-                  key={`sensor-stage-${stage.stageNum}`}
-                  className={`stage-card-compact ${isFailed ? 'fail' : 'pass'}`}
-                >
-                  <div className="stage-card-header">
-                    <span className="stage-num-title">Stage {stage.stageNum} ({stage.timeSec}s)</span>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                      {transientMetrics && (
-                        <TransientBadge metrics={transientMetrics} compact showDelta />
-                      )}
-                      <span className={`status-badge-mini ${isFailed ? 'fail' : 'pass'}`}>
-                        {isFailed ? <AlertTriangle size={10} /> : <CheckCircle2 size={10} />}
-                        <span>{isFailed ? 'EXCURSION' : 'PASS'}</span>
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Setpoint Reference */}
-                  <div className="stage-sp-info">
-                    <div className="stage-sp-line">
-                      <span className="sp-item" title="Secondary Flow Setpoint">
-                        <span className="sp-k">Flow:</span> <strong className="sp-v text-cyan-400">{stage.flowSp !== null ? `${stage.flowSp} ${flowSpUnit}` : '--'}</strong>
-                      </span>
-                      <span className="sp-item" title="Secondary DP Setpoint">
-                        <span className="sp-k">DP:</span> <strong className="sp-v text-emerald-400">{stage.dpSp !== null ? `${stage.dpSp} ${dpSpUnit}` : '--'}</strong>
-                      </span>
-                    </div>
-                    <div className="stage-sp-line">
-                      <span className="sp-item" title="Secondary Temperature Setpoint">
-                        <span className="sp-k">Temp:</span> <strong className="sp-v text-amber-300">{stage.tempSp !== null ? `${stage.tempSp} ${tempSpUnit}` : '--'}</strong>
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Measured Dwell Value Prominent Box */}
-                  <div style={{ 
-                    marginTop: '6px', 
-                    padding: '6px 8px', 
-                    borderRadius: '4px', 
-                    background: isFailed ? 'rgba(239, 68, 68, 0.08)' : 'rgba(0, 210, 255, 0.05)',
-                    border: `1px solid ${isFailed ? 'rgba(239, 68, 68, 0.25)' : 'rgba(0, 210, 255, 0.15)'}`
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                      <span style={{ fontSize: '9px', textTransform: 'uppercase', color: 'var(--text-dim)', fontWeight: 700 }}>
-                        Measured Dwell:
-                      </span>
-                      <span className={`font-mono font-bold ${isFailed ? 'text-red' : 'text-cyan'}`} style={{ fontSize: '13px' }}>
-                        {valStr} {unit}
-                      </span>
-                    </div>
-
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '3px', fontSize: '10px' }}>
-                      <span className="text-dim" style={{ fontSize: '9.5px' }}>3σ Bounds:</span>
-                      <span className="font-mono text-dim" style={{ fontSize: '9.5px' }}>
-                        [{lowLimitStr} ~ {highLimitStr}]
-                      </span>
-                    </div>
-
-                    {(zScoreStr || marginStr) && (
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '3px', fontSize: '9.5px' }}>
-                        {zScoreStr && (
-                          <span className={`font-mono font-bold ${isFailed ? 'text-rose-400' : 'text-emerald-400'}`}>
-                            {zScoreStr}
-                          </span>
-                        )}
-                        {marginStr && (
-                          <span className={`font-mono ${isFailed ? 'text-rose-400 font-bold' : 'text-slate-300'}`}>
-                            Δ {marginStr}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
-      {/* Hardware & Modbus Specifications Grid */}
-      <div style={{ padding: '0 14px', marginTop: '14px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-          <div>
-            <h3 className="cad-card-subtitle" style={{ margin: 0 }}>
-              Hardware Architecture & Modbus Register Specifications
-            </h3>
-            <span style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>
-              PLC telemetry channel mapping, engineering unit normalization, and hardware sentinel verification
-            </span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <ModbusIcon size={13} className="text-purple-400" />
-            <span style={{ fontSize: '10.5px', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>
-              Link-Local PLC: 169.254.244.6:502
-            </span>
-          </div>
-        </div>
-
-        <div className="cad-property-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '10px' }}>
-          {/* Card 1: Channel Identity & Physical Transducer */}
-          <div className="cad-prop-group">
-            <div className="cad-prop-group-header">
-              <span className="cad-prop-chevron">▾</span>
-              <span className="cad-prop-group-title">Channel Identity & Physical Transducer</span>
+        <div className="stage-matrix-container">
+          <div className="stage-matrix-toolbar">
+            <div className="stage-matrix-title-wrap">
+              <span className="stage-matrix-title">
+                10-Stage Operating Progression & Verification Matrix — {friendlyName} (15s – 525s)
+              </span>
+              <span style={{ fontSize: '10px', padding: '1px 6px', background: 'rgba(2, 132, 199, 0.12)', border: '1px solid rgba(2, 132, 199, 0.28)', borderRadius: '3px', color: 'var(--accent-cyan)' }}>
+                Invariant 13 Compliant
+              </span>
+              <div className="stage-matrix-counts">
+                <span className="count-pill all">{stages.length} Stages</span>
+                <span className={`count-pill ${stageEvaluations.filter(e => e.isFailed).length > 0 ? 'fail' : 'pass'}`}>
+                  {stageEvaluations.filter(e => e.isFailed).length} Failed
+                </span>
+                <span className="count-pill pass">
+                  {stages.length - stageEvaluations.filter(e => e.isFailed).length} Nominal
+                </span>
+              </div>
             </div>
-            <table className="cad-prop-table">
-              <tbody>
-                <tr>
-                  <td className="cad-prop-key">Tag Name</td>
-                  <td className="cad-prop-val font-mono font-bold text-cyan">{selectedSensor}</td>
-                </tr>
-                <tr>
-                  <td className="cad-prop-key">Subsystem Domain</td>
-                  <td className="cad-prop-val">{subName} ({category.toUpperCase()})</td>
-                </tr>
-                <tr>
-                  <td className="cad-prop-key">Engineering Unit</td>
-                  <td className="cad-prop-val font-mono font-bold text-green">{unit || '--'}</td>
-                </tr>
-                <tr>
-                  <td className="cad-prop-key">Required Envelope</td>
-                  <td className="cad-prop-val font-mono">{stats?.requiredRangeSample || '±3σ Dynamic SPC'}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
 
-          {/* Card 2: Modbus TCP & Signal Conditioning */}
-          <div className="cad-prop-group">
-            <div className="cad-prop-group-header">
-              <span className="cad-prop-chevron">▾</span>
-              <span className="cad-prop-group-title">Modbus TCP & Signal Conditioning</span>
+            <div className="stage-matrix-actions">
+              <button
+                type="button"
+                className="cad-details-btn"
+                onClick={() => {
+                  setSelectedModalStage(null);
+                  setShowMetricsModal(true);
+                }}
+                title="Open 11-column statistical process control ledger and distribution"
+              >
+                <BarChart2 size={12} />
+                <span>⋯ Advanced SPC Details</span>
+              </button>
             </div>
-            <table className="cad-prop-table">
+          </div>
+
+          <div className="stage-matrix-scroll-wrap">
+            <table className="stage-matrix-table">
+              <thead>
+                <tr>
+                  <th style={{ width: '13%' }}>Stage & Dwell</th>
+                  <th style={{ width: '10%' }}>Verdict</th>
+                  <th style={{ width: '15%' }}>Transient Stability</th>
+                  <th style={{ width: '9%' }}>Flow Sp</th>
+                  <th style={{ width: '8%' }}>DP Sp</th>
+                  <th style={{ width: '8%' }}>Temp Sp</th>
+                  <th style={{ width: '15%' }}>Measured Dwell</th>
+                  <th style={{ width: '14%' }}>Expected Range / Spec</th>
+                  <th style={{ width: '8%', textAlign: 'right' }}>Details</th>
+                </tr>
+              </thead>
               <tbody>
-                <tr>
-                  <td className="cad-prop-key">Register Source</td>
-                  <td className="cad-prop-val font-mono">Modbus TCP : 502</td>
-                </tr>
-                <tr>
-                  <td className="cad-prop-key">Holding Register</td>
-                  <td className="cad-prop-val font-mono">{modbusAddress}</td>
-                </tr>
-                <tr>
-                  <td className="cad-prop-key">0–10V Scaling</td>
-                  <td className="cad-prop-val">
-                    {category === 'pump' || selectedSensor.includes('FCV') ? (
-                      <span className="cad-active-tag">10× Normalized (0–100%)</span>
-                    ) : (
-                      <span className="cad-dim-tag">Standard Physical</span>
-                    )}
-                  </td>
-                </tr>
-                <tr>
-                  <td className="cad-prop-key">Two's Complement</td>
-                  <td className="cad-prop-val">
-                    {selectedSensor.includes('DP') ? (
-                      <span className="cad-active-tag">Signed 16-Bit Rollover Active</span>
-                    ) : (
-                      <span className="cad-dim-tag">Unsigned 16-Bit</span>
-                    )}
-                  </td>
-                </tr>
-                <tr>
-                  <td className="cad-prop-key">Sentinel Check (0xFFFF)</td>
-                  <td className="cad-prop-val font-mono">
-                    {stats?.peak === 6553.5 ? (
-                      <span className="text-red font-bold">0xFFFF Open-Circuit Fault</span>
-                    ) : (
-                      <span className="text-green">Clean Transducer Bus</span>
-                    )}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+                {stageEvaluations.map(({ stage, measuredStr, isFailed, transientMetrics, rangeText }) => {
+                  return (
+                    <tr 
+                      key={`sensor-stage-${stage.stageNum}`}
+                      className={`stage-matrix-row ${isFailed ? 'row-fail' : 'row-pass'}`}
+                    >
+                      <td className="stage-cell-stage">
+                        <div className="stage-primary-id">
+                          <span className="stage-name">Stage {stage.stageNum}</span>
+                          {stage.stageNum === 10 && (
+                            <span className="stage-steady-tag">Steady</span>
+                          )}
+                        </div>
+                        <span className="stage-dwell-sub">{stage.timeSec}s dwell</span>
+                      </td>
 
-          {/* Card 3: Statistical SPC 3-Sigma Limits */}
-          <div className="cad-prop-group">
-            <div className="cad-prop-group-header">
-              <span className="cad-prop-chevron">▾</span>
-              <span className="cad-prop-group-title">Statistical SPC 3-Sigma Limits</span>
-            </div>
-            <table className="cad-prop-table">
-              <tbody>
-                <tr>
-                  <td className="cad-prop-key">Process Mean (μ)</td>
-                  <td className="cad-prop-val font-mono">
-                    {stats?.nominalMean !== null && stats?.nominalMean !== undefined 
-                      ? `${stats.nominalMean.toFixed(2)} ${unit}` 
-                      : (meanValue !== null ? `${meanValue.toFixed(2)} ${unit}` : '--')}
-                  </td>
-                </tr>
-                <tr>
-                  <td className="cad-prop-key">Process Sigma (σ)</td>
-                  <td className="cad-prop-val font-mono">
-                    {stats?.processSigma !== null && stats?.processSigma !== undefined 
-                      ? `${stats.processSigma.toFixed(3)} ${unit}` 
-                      : '--'}
-                  </td>
-                </tr>
-                <tr>
-                  <td className="cad-prop-key">Lower 3σ (μ - 3σ)</td>
-                  <td className="cad-prop-val font-mono text-cyan">
-                    {stats?.low3Sigma !== null && stats?.low3Sigma !== undefined 
-                      ? `${stats.low3Sigma.toFixed(2)} ${unit}` 
-                      : '--'}
-                  </td>
-                </tr>
-                <tr>
-                  <td className="cad-prop-key">Upper 3σ (μ + 3σ)</td>
-                  <td className="cad-prop-val font-mono text-cyan">
-                    {stats?.high3Sigma !== null && stats?.high3Sigma !== undefined 
-                      ? `${stats.high3Sigma.toFixed(2)} ${unit}` 
-                      : '--'}
-                  </td>
-                </tr>
-                <tr>
-                  <td className="cad-prop-key">3σ Tolerance Band</td>
-                  <td className="cad-prop-val font-mono">
-                    {stats?.threeSigmaSpan !== null && stats?.threeSigmaSpan !== undefined 
-                      ? `±${stats.threeSigmaSpan.toFixed(2)} ${unit} (Span: ${(stats.threeSigmaSpan * 2).toFixed(2)})` 
-                      : '--'}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          {/* Card 4: Parametric Extremes (Triad) */}
-          <div className="cad-prop-group">
-            <div className="cad-prop-group-header">
-              <span className="cad-prop-chevron">▾</span>
-              <span className="cad-prop-group-title">Parametric Extremes (Triad)</span>
-            </div>
-            <table className="cad-prop-table">
-              <tbody>
-                <tr>
-                  <td className="cad-prop-key">Recorded Peak (Max)</td>
-                  <td className="cad-prop-val font-mono text-blue font-bold">
-                    {stats?.peak !== null && stats?.peak !== undefined 
-                      ? `${stats.peak.toFixed(2)} ${unit}` 
-                      : '--'}
-                  </td>
-                </tr>
-                <tr>
-                  <td className="cad-prop-key">Recorded Minimum (Min)</td>
-                  <td className="cad-prop-val font-mono text-sky">
-                    {stats?.min !== null && stats?.min !== undefined 
-                      ? `${stats.min.toFixed(2)} ${unit}` 
-                      : '--'}
-                  </td>
-                </tr>
-                <tr>
-                  <td className="cad-prop-key">Settling (at 525s)</td>
-                  <td className="cad-prop-val font-mono font-bold text-green">
-                    {stats?.settling !== null && stats?.settling !== undefined 
-                      ? `${typeof stats.settling === 'number' ? stats.settling.toFixed(2) : stats.settling} ${unit}` 
-                      : '--'}
-                  </td>
-                </tr>
-                <tr>
-                  <td className="cad-prop-key">Worst Margin Buffer</td>
-                  <td className="cad-prop-val font-mono">
-                    <span className={`cad-margin-pill ${stats?.worstMargin !== null && stats?.worstMargin !== undefined && stats.worstMargin < 0 ? 'margin-deficit' : 'margin-healthy'}`}>
-                      {stats?.worstMargin !== null && stats?.worstMargin !== undefined 
-                        ? `${stats.worstMargin > 0 ? '+' : ''}${stats.worstMargin.toFixed(2)} ${unit}` 
-                        : '--'}
-                    </span>
-                  </td>
-                </tr>
-                <tr>
-                  <td className="cad-prop-key">Observed Span</td>
-                  <td className="cad-prop-val font-mono">
-                    {stats?.min !== null && stats?.peak !== null && stats?.min !== undefined && stats?.peak !== undefined 
-                      ? `${(stats.peak - stats.min).toFixed(2)} ${unit}` 
-                      : '--'}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-      {/* Single-Channel 10-Stage Dwell Check Table */}
-      <div className="cad-table-container-card" style={{ margin: '14px', borderRadius: '6px', border: '1px solid var(--border-color)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-          <div>
-            <h3 className="cad-card-subtitle" style={{ margin: 0 }}>
-              10-Stage Dwell Check Table & Tolerance Limit Ledger ({selectedSensor})
-            </h3>
-            <span style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>
-              Step-by-step dwell values, excitation setpoints, statistical boundaries, Z-scores, and margin deltas
-            </span>
-          </div>
-          <div style={{ fontSize: '10.5px', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>
-            [Evaluating Rows 5 to 32 | Tolerance: μ ± 3.00σ]
-          </div>
-        </div>
-
-        <div className="datasheet-table-wrapper">
-          <table className="datasheet-table">
-            <thead>
-              <tr>
-                <th>Time (Stage)</th>
-                <th>Flow SP</th>
-                <th>DP SP</th>
-                <th>Measured Value</th>
-                <th>Lower 3σ (μ - 3σ)</th>
-                <th>Process Mean (μ)</th>
-                <th>Upper 3σ (μ + 3σ)</th>
-                <th>Process Sigma (σ)</th>
-                <th>Sigma Dev (Z)</th>
-                <th>Margin Buffer</th>
-                <th>Transient Tracking (ΔSP)</th>
-                <th>3σ Verdict</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sensorEvaluations.map((pt, idx) => {
-                const isPtFail = pt.status === 'fail';
-                const isPtWarn = pt.status === 'warn';
-
-                return (
-                  <tr 
-                    key={`${pt.timeSec}-${idx}`} 
-                    className={isPtFail ? 'row-failed' : (isPtWarn ? 'row-warn' : '')}
-                  >
-                    <td className="time-col font-mono">
-                      <span>{pt.timeSec}s</span>
-                      <span className="stage-num-tag">Stage {Math.min(10, Math.floor(idx / 3) + 1)}</span>
-                    </td>
-                    <td className="sp-col font-mono">{pt.flowSp !== null ? `${pt.flowSp} ${flowSpUnit}` : '-'}</td>
-                    <td className="sp-col font-mono">{pt.dpSp !== null ? `${pt.dpSp} ${dpSpUnit}` : '-'}</td>
-                    <td className="val-col font-mono font-bold">
-                      {typeof pt.measured === 'number' ? pt.measured.toFixed(2) : (pt.measured ?? '-')} {pt.unit}
-                    </td>
-                    <td className="limit-col font-mono">
-                      {typeof pt.lowLimit === 'number' ? `${pt.lowLimit.toFixed(2)} ${pt.unit}` : (pt.lowLimit ?? '-')}
-                    </td>
-                    <td className="mean-col font-mono">
-                      {typeof pt.nominalMean === 'number' ? `${pt.nominalMean.toFixed(2)} ${pt.unit}` : '-'}
-                    </td>
-                    <td className="limit-col font-mono">
-                      {typeof pt.highLimit === 'number' ? `${pt.highLimit.toFixed(2)} ${pt.unit}` : (pt.highLimit ?? '-')}
-                    </td>
-                    <td className="sigma-col font-mono text-xs">
-                      {typeof pt.processSigma === 'number' ? (
-                        <span>
-                          {pt.processSigma.toFixed(3)} <span className="text-slate-400 font-normal">(±{pt.threeSigmaSpan?.toFixed(2)})</span>
+                      <td className="stage-cell-verdict">
+                        <span className={`status-badge-mini ${isFailed ? 'fail' : 'pass'}`}>
+                          {isFailed ? <AlertTriangle size={10} /> : <CheckCircle2 size={10} />}
+                          <span>{isFailed ? 'FAILED' : 'PASS'}</span>
                         </span>
-                      ) : '-'}
-                    </td>
-                    <td className="z-col font-mono">
-                      {typeof pt.zScore === 'number' ? (
-                        <span className={`z-score-pill ${Math.abs(pt.zScore) > 3.0 ? 'fail' : (Math.abs(pt.zScore) > 2.5 ? 'warn' : 'pass')}`}>
-                          {pt.zScore > 0 ? '+' : ''}{pt.zScore.toFixed(2)}σ
-                        </span>
-                      ) : '-'}
-                    </td>
-                    <td className="margin-col font-mono">
-                      {pt.marginBuffer !== null ? (
-                        <span className={pt.marginBuffer < 0 ? 'text-rose-400 font-bold' : 'text-emerald-400'}>
-                          {pt.marginBuffer >= 0 ? '+' : ''}{pt.marginBuffer.toFixed(2)} {pt.unit}
-                        </span>
-                      ) : '-'}
-                    </td>
-                    <td className="tracking-col font-mono" style={{ textAlign: 'center' }}>
-                      {(() => {
-                        const stg = stages.find(s => s.timeSec === pt.timeSec);
-                        const progStage = getProgrammedStage(stg ? stg.stageNum : Math.min(10, Math.floor(idx / 3) + 1));
-                        const tMetrics = (progStage && typeof pt.measured === 'number')
-                          ? calculateStageTransientMetrics(selectedSensor, progStage, pt.measured, pt.unit)
-                          : null;
-                        return tMetrics ? (
-                          <TransientBadge metrics={tMetrics} compact showDelta />
+                      </td>
+
+                      <td className="stage-cell-transient">
+                        {transientMetrics ? (
+                          <TransientBadge metrics={transientMetrics} compact showDelta />
                         ) : (
-                          <span style={{ color: 'var(--text-dim)', fontSize: '11px' }}>--</span>
-                        );
-                      })()}
-                    </td>
-                    <td className="status-col">
-                      <span className={`status-pill-small ${pt.status}`}>
-                        {isPtFail ? 'FAIL (>3σ)' : (isPtWarn ? 'WARN' : 'PASS (≤3σ)')}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                          <span className="text-muted font-mono" style={{ fontSize: '10px' }}>--</span>
+                        )}
+                      </td>
+
+                      <td className="stage-cell-sp">
+                        <span className="sp-v font-mono text-cyan-400">
+                          {stage.flowSp !== null ? `${stage.flowSp} ${flowSpUnit}` : '--'}
+                        </span>
+                      </td>
+
+                      <td className="stage-cell-sp">
+                        <span className="sp-v font-mono text-emerald-400">
+                          {stage.dpSp !== null ? `${stage.dpSp} ${dpSpUnit}` : '--'}
+                        </span>
+                      </td>
+
+                      <td className="stage-cell-sp">
+                        <span className="sp-v font-mono text-amber-300">
+                          {stage.tempSp !== null ? `${stage.tempSp} ${tempSpUnit}` : '--'}
+                        </span>
+                      </td>
+
+                      <td className="stage-cell-sp">
+                        <strong className={`font-mono ${isFailed ? 'text-red' : 'text-cyan-400'}`} style={{ fontSize: '12px' }}>
+                          {measuredStr}
+                        </strong>
+                      </td>
+
+                      <td>
+                        <span className="font-mono text-xs" style={{ color: 'var(--text-muted)' }}>
+                          {rangeText}
+                        </span>
+                      </td>
+
+                      <td style={{ textAlign: 'right' }}>
+                        <button
+                          type="button"
+                          className="cad-details-btn"
+                          onClick={() => {
+                            setSelectedModalStage(stage.stageNum);
+                            setShowMetricsModal(true);
+                          }}
+                          title={`Open Advanced Metrology Modal for ${friendlyName} focusing on Stage ${stage.stageNum}`}
+                        >
+                          ⋯ Details
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Integrated SPC Metrology Footer (Merged with 10-Stage Matrix) */}
+          <div className="stage-matrix-spc-footer">
+            <div className="stage-matrix-spc-summary">
+              <span className="spc-summary-title">Statistical Process Control (SPC):</span>
+              <span className="spc-stat-pill">
+                <span className="spc-stat-label">Nominal Mean (μ):</span>
+                <strong className="spc-stat-val font-mono text-cyan-400">
+                  {stats?.nominalMean?.toFixed(2) ?? '--'} {unit}
+                </strong>
+              </span>
+              <span className="spc-stat-divider">•</span>
+              <span className="spc-stat-pill">
+                <span className="spc-stat-label">Std Dev (σ):</span>
+                <strong className="spc-stat-val font-mono text-amber-300">
+                  {stats?.processSigma?.toFixed(3) ?? '--'} {unit}
+                </strong>
+              </span>
+              <span className="spc-stat-divider">•</span>
+              <span className="spc-stat-pill">
+                <span className="spc-stat-label">Worst Margin:</span>
+                <strong className={`spc-stat-val font-mono ${stats?.worstMargin !== null && stats?.worstMargin !== undefined && stats.worstMargin < 0 ? 'text-red' : 'text-emerald-400'}`}>
+                  {stats?.worstMargin !== null && stats?.worstMargin !== undefined ? `${stats.worstMargin >= 0 ? '+' : ''}${stats.worstMargin.toFixed(2)} ${unit}` : '--'}
+                </strong>
+              </span>
+              {stats?.low3Sigma !== undefined && stats?.high3Sigma !== undefined && (
+                <>
+                  <span className="spc-stat-divider">•</span>
+                  <span className="spc-stat-pill">
+                    <span className="spc-stat-label">3σ Tolerance Gate:</span>
+                    <span className="spc-stat-val font-mono text-dim">
+                      [{stats.low3Sigma.toFixed(2)} ~ {stats.high3Sigma.toFixed(2)} {unit}]
+                    </span>
+                  </span>
+                </>
+              )}
+            </div>
+
+            <button
+              type="button"
+              className="cad-details-btn spc-footer-btn"
+              onClick={() => {
+                setSelectedModalStage(null);
+                setShowMetricsModal(true);
+              }}
+              title="Open full 11-column statistical process control ledger, tolerance gates, and distribution in details menu"
+            >
+              <BarChart2 size={12} />
+              <span>⋯ Advanced SPC Details</span>
+            </button>
+          </div>
         </div>
       </div>
+
+      {/* On-Demand Advanced SPC Metrology Modal */}
+      <CadAdvancedMetricsModal
+        isOpen={showMetricsModal}
+        onClose={() => {
+          setShowMetricsModal(false);
+          setSelectedModalStage(null);
+        }}
+        initialSensor={selectedSensor}
+        dataset={dataset}
+        onSelectSensor={onSelectSensor}
+        highlightStageNum={selectedModalStage}
+      />
     </section>
   );
 };

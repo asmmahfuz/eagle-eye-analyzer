@@ -108,7 +108,7 @@ export function checkPumpSpeedRules(dataset: EagleEyeDataset): EvaluatedFaultRes
         summary: isUnequipped
           ? `${pump.name} is not equipped on this 2-pump CDU model configuration.`
           : (isTriggered
-            ? `${def.shortName}: Measured speed breached allowable envelope (${breaches.length} stage step excursions observed).`
+            ? `${def.shortName}: Measured speed breached allowable envelope (${breaches.length} out-of-spec stage steps observed).`
             : `${pump.name} operating speed within allowable 25%-100% envelope.`)
       });
     });

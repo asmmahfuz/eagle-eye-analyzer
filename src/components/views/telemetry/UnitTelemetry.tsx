@@ -3,8 +3,7 @@ import { Chart, registerables } from 'chart.js';
 import { 
   EagleEyeDataset, 
   SubsystemCategory, 
-  SUBSYSTEM_LABELS, 
-  ParameterSummary 
+  SUBSYSTEM_LABELS 
 } from '../../../types';
 import { 
   Activity, 
@@ -15,12 +14,11 @@ import {
   Cpu, 
   Gauge, 
   Thermometer, 
-  Search, 
   ChevronRight,
-  Layers,
-  Sliders
+  Layers
 } from '../../Icons';
 import { TransientSummaryCard } from './TransientSummaryCard';
+import { createStageDwellPlugin } from './stageDwellPlugin';
 
 Chart.register(...registerables);
 
@@ -39,9 +37,10 @@ interface PrimaryCurveDef {
   isSetpoint?: boolean;
 }
 
+type TimebasePreset = 'all' | 'warmup' | 'ramp' | 'cooldown';
+
 export const UnitTelemetry: React.FC<UnitTelemetryProps> = ({
   dataset,
-  onSelectSensor,
   onSelectSubsystem
 }) => {
   const chartCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -78,7 +77,7 @@ export const UnitTelemetry: React.FC<UnitTelemetryProps> = ({
   const dpSpUnit = unitMap['Secondary DP Setpoint'] || 'psi';
   const tempSpUnit = unitMap['Secondary Temperature Setpoint'] || '°C';
 
-  // Identify available key excitation & feedback channels in this workbook
+  // Available key excitation & feedback channels
   const availablePrimaryCurves = useMemo<PrimaryCurveDef[]>(() => {
     const list: PrimaryCurveDef[] = [];
 
@@ -166,7 +165,6 @@ export const UnitTelemetry: React.FC<UnitTelemetryProps> = ({
     return init;
   });
 
-  // Ensure newly discovered curves get default visibility
   useEffect(() => {
     setVisibleCurves(prev => {
       const next = { ...prev };
@@ -195,6 +193,10 @@ export const UnitTelemetry: React.FC<UnitTelemetryProps> = ({
     });
     setVisibleCurves(next);
   };
+
+  const [showStageDwells, setShowStageDwells] = useState(true);
+  const [timebase, setTimebase] = useState<TimebasePreset>('all');
+  const [focusedStage, setFocusedStage] = useState<number | null>(null);
 
   // Render Operational Multi-Curve Chart
   useEffect(() => {
@@ -231,12 +233,50 @@ export const UnitTelemetry: React.FC<UnitTelemetryProps> = ({
         };
       });
 
+    // Determine scale limits for timebase preset or focused stage
+    let xMin: string | undefined = undefined;
+    let xMax: string | undefined = undefined;
+
+    if (focusedStage !== null) {
+      const stg = stages.find(s => s.stageNum === focusedStage);
+      if (stg) {
+        const curIdx = measurements.findIndex(m => m['Time'] === stg.timeSec);
+        if (curIdx !== -1) {
+          const startIdx = Math.max(0, curIdx - 2);
+          const endIdx = Math.min(labels.length - 1, curIdx + 2);
+          xMin = labels[startIdx];
+          xMax = labels[endIdx];
+        }
+      }
+    } else if (timebase === 'warmup') {
+      xMin = labels[0];
+      const endIdx = measurements.findIndex(m => m['Time'] === 135);
+      xMax = endIdx !== -1 ? labels[endIdx] : labels[Math.min(5, labels.length - 1)];
+    } else if (timebase === 'ramp') {
+      const startIdx = measurements.findIndex(m => m['Time'] === 135);
+      const endIdx = measurements.findIndex(m => m['Time'] === 375);
+      xMin = startIdx !== -1 ? labels[startIdx] : labels[0];
+      xMax = endIdx !== -1 ? labels[endIdx] : labels[labels.length - 1];
+    } else if (timebase === 'cooldown') {
+      const startIdx = measurements.findIndex(m => m['Time'] === 375);
+      xMin = startIdx !== -1 ? labels[startIdx] : labels[0];
+      xMax = labels[labels.length - 1];
+    }
+
+    const stageDwellPlugin = createStageDwellPlugin({
+      stages,
+      measurements,
+      isDark,
+      enabled: showStageDwells
+    });
+
     chartInstanceRef.current = new Chart(ctx, {
       type: 'line',
       data: {
         labels,
         datasets
       },
+      plugins: [stageDwellPlugin],
       options: {
         responsive: true,
         maintainAspectRatio: false,
@@ -247,7 +287,7 @@ export const UnitTelemetry: React.FC<UnitTelemetryProps> = ({
         },
         plugins: {
           legend: {
-            display: false // Controlled via top custom toolbar chips
+            display: false
           },
           tooltip: {
             backgroundColor: isDark ? 'rgba(11, 17, 32, 0.95)' : 'rgba(255, 255, 255, 0.98)',
@@ -274,6 +314,8 @@ export const UnitTelemetry: React.FC<UnitTelemetryProps> = ({
         },
         scales: {
           x: {
+            min: xMin,
+            max: xMax,
             grid: { color: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.06)' },
             ticks: { color: '#64748b', font: { family: "'JetBrains Mono', monospace", size: 9.5 } }
           },
@@ -322,106 +364,24 @@ export const UnitTelemetry: React.FC<UnitTelemetryProps> = ({
         chartInstanceRef.current.destroy();
       }
     };
-  }, [measurements, availablePrimaryCurves, visibleCurves, currentTheme, stages, flowSpUnit, dpSpUnit, tempSpUnit]);
+  }, [
+    measurements, 
+    availablePrimaryCurves, 
+    visibleCurves, 
+    currentTheme, 
+    stages, 
+    flowSpUnit, 
+    dpSpUnit, 
+    tempSpUnit,
+    showStageDwells,
+    timebase,
+    focusedStage
+  ]);
 
-  // Channel search and status filters for thumbnails
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'fail' | 'pass'>('all');
-
-  // Subsystem list definition
-  const subsystems = useMemo(() => {
-    const list: {
-      id: SubsystemCategory;
-      name: string;
-      icon: React.ReactNode;
-      color: string;
-      channels: { name: string; stat: ParameterSummary }[];
-    }[] = [
-      {
-        id: 'hydraulic',
-        name: 'Hydraulic & DP',
-        icon: <Droplets size={14} className="text-cyan-400" />,
-        color: '#0284c7',
-        channels: []
-      },
-      {
-        id: 'pump',
-        name: 'Pumps & VFD Drives',
-        icon: <Activity size={14} className="text-blue-400" />,
-        color: '#2563eb',
-        channels: []
-      },
-      {
-        id: 'temperature',
-        name: 'Temperature Transmitters',
-        icon: <Thermometer size={14} className="text-amber-400" />,
-        color: '#f59e0b',
-        channels: []
-      },
-      {
-        id: 'pressure',
-        name: 'Pressure Transmitters',
-        icon: <Gauge size={14} className="text-sky-400" />,
-        color: '#0ea5e9',
-        channels: []
-      },
-      {
-        id: 'environmental',
-        name: 'Environmental & Ambient',
-        icon: <Wind size={14} className="text-indigo-400" />,
-        color: '#6366f1',
-        channels: []
-      },
-      {
-        id: 'system',
-        name: 'System & Configuration',
-        icon: <Cpu size={14} className="text-purple-400" />,
-        color: '#a855f7',
-        channels: []
-      }
-    ];
-
-    Object.entries(parameterStats).forEach(([name, stat]) => {
-      const sub = list.find(s => s.id === stat.category);
-      if (sub) {
-        sub.channels.push({ name, stat });
-      }
-    });
-
-    return list;
-  }, [parameterStats]);
-
-  // Filter channels according to search and status filter
-  const filteredSubsystems = useMemo(() => {
-    const q = searchQuery.toLowerCase().trim();
-    return subsystems.map(sub => {
-      const filteredChannels = sub.channels.filter(({ name, stat }) => {
-        // Status filter
-        if (statusFilter === 'fail' && stat.failCount === 0) return false;
-        if (statusFilter === 'pass' && stat.failCount > 0) return false;
-
-        // Search query
-        if (!q) return true;
-        return (
-          name.toLowerCase().includes(q) ||
-          (stat.unit && stat.unit.toLowerCase().includes(q)) ||
-          sub.name.toLowerCase().includes(q)
-        );
-      });
-
-      return {
-        ...sub,
-        channels: filteredChannels
-      };
-    }).filter(sub => sub.channels.length > 0);
-  }, [subsystems, searchQuery, statusFilter]);
-
-  const totalChannelsCount = Object.keys(parameterStats).length;
-  const failingChannelsCount = Object.values(parameterStats).filter(s => s.failCount > 0).length;
-  const passingChannelsCount = totalChannelsCount - failingChannelsCount;
+  const activeCurvesCount = Object.values(visibleCurves).filter(Boolean).length;
 
   return (
-    <section className="cad-tab-focused-card row-telemetry-unit">
+    <section className="cad-tab-focused-card row-telemetry-unit" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
       {/* 1. Header Bar: Whole Unit Telemetry Identity */}
       <div className="row-header-bar">
         <div className="row-title-group">
@@ -430,7 +390,7 @@ export const UnitTelemetry: React.FC<UnitTelemetryProps> = ({
           </div>
           <div>
             <h2 className="sensor-main-title">
-              Whole-Unit Operational Telemetry & System Excitation Overview
+              Whole-Unit Operational Telemetry & System Excitation Oscilloscope
             </h2>
             <span className="unit-metadata-sub">
               Unit Serial: <strong>{metadata.serialNumber || 'N/A'}</strong> | Work Order: <strong>{metadata.workOrderNumber || 'N/A'}</strong> | Duration: <strong>525s Cooldown Run</strong> | Operating Stages: <strong>10 Steps</strong>
@@ -460,22 +420,99 @@ export const UnitTelemetry: React.FC<UnitTelemetryProps> = ({
         </div>
       </div>
 
-      {/* Dynamic Transient Analytics Summary Card */}
+      {/* Dynamic Transient Analytics Summary Card (Flow, DP, Temp Tracking Loops) */}
       <TransientSummaryCard dataset={dataset} />
 
       {/* 2. Whole-Unit Operational Overview Chart Card */}
-      <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-card)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
+      <div style={{ padding: '12px 14px', flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--bg-card)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
           <div>
             <h3 className="cad-card-subtitle" style={{ margin: 0 }}>
-              System-Wide Excitation & Primary Feedback Overlay (0s – 525s)
+              Multi-Axis Laboratory Oscilloscope & Primary Feedback Overlay
             </h3>
             <span style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>
-              Primary hydraulic excitation setpoints plotted alongside real-time unit flow, differential pressure, pump speed, and thermal feedbacks
+              Primary excitation setpoints plotted alongside real-time unit flow, differential pressure, pump speed, and thermal feedbacks
             </span>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+            {/* Timebase Presets */}
+            <div style={{ display: 'flex', border: '1px solid var(--border-color)', borderRadius: '5px', overflow: 'hidden' }}>
+              <button
+                type="button"
+                onClick={() => { setTimebase('all'); setFocusedStage(null); }}
+                style={{
+                  padding: '3px 8px',
+                  fontSize: '10.5px',
+                  border: 'none',
+                  cursor: 'pointer',
+                  background: timebase === 'all' && focusedStage === null ? 'var(--accent-cyan)' : 'var(--bg-subtle)',
+                  color: timebase === 'all' && focusedStage === null ? '#ffffff' : 'var(--text-main)',
+                  fontWeight: timebase === 'all' && focusedStage === null ? 700 : 500
+                }}
+                title="View full 0s to 525s cooldown run"
+              >
+                All (0–525s)
+              </button>
+              <button
+                type="button"
+                onClick={() => { setTimebase('warmup'); setFocusedStage(null); }}
+                style={{
+                  padding: '3px 8px',
+                  fontSize: '10.5px',
+                  border: 'none',
+                  borderLeft: '1px solid var(--border-color)',
+                  cursor: 'pointer',
+                  background: timebase === 'warmup' ? 'var(--accent-cyan)' : 'var(--bg-subtle)',
+                  color: timebase === 'warmup' ? '#ffffff' : 'var(--text-main)',
+                  fontWeight: timebase === 'warmup' ? 700 : 500
+                }}
+                title="Zoom into Warmup (Stages 1–3)"
+              >
+                Warmup (S1–S3)
+              </button>
+              <button
+                type="button"
+                onClick={() => { setTimebase('ramp'); setFocusedStage(null); }}
+                style={{
+                  padding: '3px 8px',
+                  fontSize: '10.5px',
+                  border: 'none',
+                  borderLeft: '1px solid var(--border-color)',
+                  cursor: 'pointer',
+                  background: timebase === 'ramp' ? 'var(--accent-cyan)' : 'var(--bg-subtle)',
+                  color: timebase === 'ramp' ? '#ffffff' : 'var(--text-main)',
+                  fontWeight: timebase === 'ramp' ? 700 : 500
+                }}
+                title="Zoom into Load Ramp (Stages 4–6)"
+              >
+                Load Ramp (S4–S6)
+              </button>
+              <button
+                type="button"
+                onClick={() => { setTimebase('cooldown'); setFocusedStage(null); }}
+                style={{
+                  padding: '3px 8px',
+                  fontSize: '10.5px',
+                  border: 'none',
+                  borderLeft: '1px solid var(--border-color)',
+                  cursor: 'pointer',
+                  background: timebase === 'cooldown' ? 'var(--accent-cyan)' : 'var(--bg-subtle)',
+                  color: timebase === 'cooldown' ? '#ffffff' : 'var(--text-main)',
+                  fontWeight: timebase === 'cooldown' ? 700 : 500
+                }}
+                title="Zoom into Steady-State (Stages 7–10)"
+              >
+                Steady-State (S7–S10)
+              </button>
+            </div>
+
+            <div className="divider-vertical" style={{ height: '16px' }}></div>
+
+            <span style={{ fontSize: '11px', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>
+              Curves: <strong>{activeCurvesCount}</strong>/{availablePrimaryCurves.length}
+            </span>
+
             <button
               onClick={() => setAllCurves(true)}
               className="cad-sheet-table-action-btn"
@@ -493,8 +530,21 @@ export const UnitTelemetry: React.FC<UnitTelemetryProps> = ({
           </div>
         </div>
 
-        {/* Curve Toggle Chips Strip */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
+        {/* Curve Toggle Chips & Stage Dwell Toggle */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', cursor: 'pointer', userSelect: 'none', fontSize: '11px', marginRight: '6px' }}>
+            <input 
+              type="checkbox" 
+              checked={showStageDwells} 
+              onChange={(e) => setShowStageDwells(e.target.checked)} 
+              style={{ cursor: 'pointer', accentColor: 'var(--accent-cyan)' }}
+            />
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--accent-cyan)' }}>┊ S1..S10</span>
+            <span style={{ color: showStageDwells ? 'var(--text-main)' : 'var(--text-muted)' }}>
+              Stage Dwells
+            </span>
+          </label>
+
           {availablePrimaryCurves.map(c => {
             const isVisible = !!visibleCurves[c.key];
             const stat = parameterStats[c.key];
@@ -509,12 +559,12 @@ export const UnitTelemetry: React.FC<UnitTelemetryProps> = ({
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: '6px',
-                  padding: '4px 9px',
-                  borderRadius: '16px',
+                  padding: '3px 8px',
+                  borderRadius: '14px',
                   border: `1px solid ${isVisible ? c.color : 'var(--border-color)'}`,
-                  background: isVisible ? `${c.color}18` : 'var(--bg-subtle)',
+                  background: isVisible ? `${c.color}15` : 'var(--bg-subtle)',
                   cursor: 'pointer',
-                  fontSize: '11px',
+                  fontSize: '10.5px',
                   userSelect: 'none',
                   transition: 'all 0.15s ease'
                 }}
@@ -527,18 +577,18 @@ export const UnitTelemetry: React.FC<UnitTelemetryProps> = ({
                 />
                 <span 
                   style={{ 
-                    width: '8px', 
-                    height: '8px', 
+                    width: '7px', 
+                    height: '7px', 
                     borderRadius: '50%', 
                     backgroundColor: c.color,
-                    boxShadow: isVisible ? `0 0 6px ${c.color}` : 'none'
+                    boxShadow: isVisible ? `0 0 5px ${c.color}` : 'none'
                   }} 
                 />
                 <span style={{ fontWeight: 600, color: isVisible ? 'var(--text-main)' : 'var(--text-dim)' }}>
                   {c.name}
                 </span>
                 {settlingVal !== null && (
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: c.color, fontWeight: 'bold' }}>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '9.5px', color: c.color, fontWeight: 'bold' }}>
                     {settlingVal} {c.unit}
                   </span>
                 )}
@@ -548,19 +598,32 @@ export const UnitTelemetry: React.FC<UnitTelemetryProps> = ({
         </div>
 
         {/* Chart Canvas Area */}
-        <div className="plot-canvas-area" style={{ height: '360px', minHeight: '320px', padding: 0 }}>
+        <div className="plot-canvas-area" style={{ height: '480px', minHeight: '400px', padding: 0, flex: 1 }}>
           <canvas ref={chartCanvasRef}></canvas>
         </div>
       </div>
 
-      {/* 3. 10-Stage Operating Summary Ribbon */}
-      <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-panel)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-          <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-dim)' }}>
-            10 Operating Stages Progression (Excitation & Step Dwells)
-          </span>
+      {/* 3. 10-Stage Operating Progression Ribbon (Interactive Oscilloscope Dwell Navigator) */}
+      <div style={{ padding: '10px 14px', borderTop: '1px solid var(--border-color)', background: 'var(--bg-panel)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-dim)' }}>
+              10 Operating Stages Progression (Excitation & Step Dwells)
+            </span>
+            {focusedStage !== null && (
+              <button
+                type="button"
+                onClick={() => setFocusedStage(null)}
+                className="cad-sheet-table-action-btn"
+                style={{ fontSize: '10px', padding: '1px 6px' }}
+                title="Reset zoom to show all stages"
+              >
+                Reset Stage Zoom
+              </button>
+            )}
+          </div>
           <span style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>
-            15s – 525s Cooldown Sequence
+            Click any stage dwell card to isolate on the oscilloscope waveform
           </span>
         </div>
 
@@ -571,22 +634,30 @@ export const UnitTelemetry: React.FC<UnitTelemetryProps> = ({
         }}>
           {stages.map((stg) => {
             const isStagePass = stg.isPass;
+            const isFocused = focusedStage === stg.stageNum;
+
             return (
               <div 
                 key={`stage-ribbon-${stg.stageNum}`}
+                onClick={() => setFocusedStage(isFocused ? null : stg.stageNum)}
                 style={{
-                  background: 'var(--bg-card)',
-                  border: `1px solid ${isStagePass ? 'var(--border-color)' : 'var(--danger-border)'}`,
+                  background: isFocused ? 'rgba(0, 210, 255, 0.12)' : 'var(--bg-card)',
+                  border: `1px solid ${isFocused ? 'var(--accent-cyan)' : (isStagePass ? 'var(--border-color)' : 'var(--danger-border)')}`,
                   borderRadius: '6px',
                   padding: '6px 8px',
                   display: 'flex',
                   flexDirection: 'column',
                   gap: '2px',
-                  fontSize: '10.5px'
+                  fontSize: '10.5px',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease'
                 }}
+                title={`Click to focus oscilloscope on Stage ${stg.stageNum} (${stg.timeSec}s dwell)`}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontWeight: 700, color: 'var(--text-main)' }}>S{stg.stageNum} ({stg.timeSec}s)</span>
+                  <span style={{ fontWeight: 700, color: isFocused ? 'var(--accent-cyan)' : 'var(--text-main)' }}>
+                    S{stg.stageNum} ({stg.timeSec}s)
+                  </span>
                   <span style={{ 
                     width: '6px', 
                     height: '6px', 
@@ -608,236 +679,56 @@ export const UnitTelemetry: React.FC<UnitTelemetryProps> = ({
         </div>
       </div>
 
-      {/* 4. Subsystem Channel Thumbnail Cards Section */}
-      <div style={{ padding: '14px', flex: 1, overflowY: 'auto' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '10px' }}>
-          <div>
-            <h3 className="cad-card-subtitle" style={{ margin: 0, fontSize: '13px' }}>
-              Subsystem Telemetry Directory & Channel Status Thumbnails
-            </h3>
-            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-              Click any channel card to open its dedicated transient laboratory oscilloscope waveform
+      {/* 4. Subsystem Scope Quick Focus Strip */}
+      {onSelectSubsystem && (
+        <div style={{
+          padding: '8px 14px',
+          borderTop: '1px solid var(--border-color)',
+          background: 'var(--bg-card)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '8px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Layers size={13} className="text-cyan-400" />
+            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-dim)' }}>
+              Subsystem Oscilloscopes:
             </span>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            {/* Status Filter Buttons */}
-            <div style={{ display: 'flex', border: '1px solid var(--border-color)', borderRadius: '6px', overflow: 'hidden' }}>
-              <button
-                onClick={() => setStatusFilter('all')}
-                style={{
-                  padding: '4px 10px',
-                  fontSize: '11px',
-                  border: 'none',
-                  cursor: 'pointer',
-                  background: statusFilter === 'all' ? 'var(--accent-cyan)' : 'var(--bg-card)',
-                  color: statusFilter === 'all' ? '#ffffff' : 'var(--text-main)',
-                  fontWeight: statusFilter === 'all' ? 700 : 500
-                }}
-              >
-                All ({totalChannelsCount})
-              </button>
-              <button
-                onClick={() => setStatusFilter('fail')}
-                style={{
-                  padding: '4px 10px',
-                  fontSize: '11px',
-                  border: 'none',
-                  borderLeft: '1px solid var(--border-color)',
-                  borderRight: '1px solid var(--border-color)',
-                  cursor: 'pointer',
-                  background: statusFilter === 'fail' ? 'var(--danger)' : 'var(--bg-card)',
-                  color: statusFilter === 'fail' ? '#ffffff' : 'var(--text-main)',
-                  fontWeight: statusFilter === 'fail' ? 700 : 500
-                }}
-              >
-                Failing ({failingChannelsCount})
-              </button>
-              <button
-                onClick={() => setStatusFilter('pass')}
-                style={{
-                  padding: '4px 10px',
-                  fontSize: '11px',
-                  border: 'none',
-                  cursor: 'pointer',
-                  background: statusFilter === 'pass' ? 'var(--success)' : 'var(--bg-card)',
-                  color: statusFilter === 'pass' ? '#ffffff' : 'var(--text-main)',
-                  fontWeight: statusFilter === 'pass' ? 700 : 500
-                }}
-              >
-                Passing ({passingChannelsCount})
-              </button>
-            </div>
-
-            {/* Quick Search */}
-            <div style={{ position: 'relative' }}>
-              <input
-                type="text"
-                placeholder="Search channels..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                style={{
-                  padding: '4px 8px 4px 26px',
-                  fontSize: '11px',
-                  border: '1px solid var(--border-color)',
-                  borderRadius: '6px',
-                  background: 'var(--bg-input)',
-                  color: 'var(--text-main)',
-                  width: '180px'
-                }}
-              />
-              <span style={{ position: 'absolute', left: '7px', top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }}>
-                <Search size={12} />
-              </span>
-            </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+            {([
+              { id: 'hydraulic' as SubsystemCategory, name: 'Hydraulic & DP', icon: <Droplets size={12} className="text-cyan-400" /> },
+              { id: 'pump' as SubsystemCategory, name: 'Pumps & VFD', icon: <Activity size={12} className="text-blue-400" /> },
+              { id: 'temperature' as SubsystemCategory, name: 'Temperature', icon: <Thermometer size={12} className="text-amber-400" /> },
+              { id: 'pressure' as SubsystemCategory, name: 'Pressure', icon: <Gauge size={12} className="text-sky-400" /> },
+              { id: 'environmental' as SubsystemCategory, name: 'Ambient', icon: <Wind size={12} className="text-indigo-400" /> },
+              { id: 'system' as SubsystemCategory, name: 'System', icon: <Cpu size={12} className="text-purple-400" /> }
+            ]).map(sub => {
+              const fails = categoryCounts[sub.id]?.fail ?? 0;
+              return (
+                <button
+                  key={sub.id}
+                  type="button"
+                  onClick={() => onSelectSubsystem(sub.id)}
+                  className="cad-sheet-table-action-btn"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '10.5px', padding: '3px 8px' }}
+                  title={`Open dedicated multi-channel oscilloscope for ${sub.name}`}
+                >
+                  {sub.icon}
+                  <span>{sub.name}</span>
+                  {fails > 0 ? (
+                    <span style={{ color: 'var(--danger)', fontWeight: 700 }}>({fails})</span>
+                  ) : null}
+                  <ChevronRight size={10} />
+                </button>
+              );
+            })}
           </div>
         </div>
-
-        {/* Subsystem Groups */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          {filteredSubsystems.map(sub => {
-            const subFailCount = categoryCounts[sub.id]?.fail ?? 0;
-            const isSubPass = subFailCount === 0;
-
-            return (
-              <div 
-                key={`sub-group-${sub.id}`}
-                style={{
-                  background: 'var(--bg-card)',
-                  border: '1px solid var(--border-color)',
-                  borderRadius: '8px',
-                  overflow: 'hidden'
-                }}
-              >
-                {/* Subsystem Header Strip */}
-                <div 
-                  style={{
-                    padding: '8px 14px',
-                    background: 'var(--bg-panel)',
-                    borderBottom: '1px solid var(--border-color)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between'
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <div style={{ 
-                      width: '24px', 
-                      height: '24px', 
-                      borderRadius: '50%', 
-                      background: 'rgba(0, 210, 255, 0.1)', 
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      justifyContent: 'center' 
-                    }}>
-                      {sub.icon}
-                    </div>
-                    <span style={{ fontWeight: 700, fontSize: '12px', color: 'var(--text-main)' }}>
-                      {sub.name}
-                    </span>
-                    <span className={`status-pill-small ${isSubPass ? 'pass' : 'fail'}`} style={{ fontSize: '10px' }}>
-                      {isSubPass ? '100% In Tolerance' : `${subFailCount} Violations`}
-                    </span>
-                    <span style={{ fontSize: '10.5px', color: 'var(--text-dim)' }}>
-                      ({sub.channels.length} channels)
-                    </span>
-                  </div>
-
-                  {onSelectSubsystem && (
-                    <button
-                      onClick={() => onSelectSubsystem(sub.id)}
-                      className="cad-sheet-table-action-btn"
-                      style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '10.5px' }}
-                      title={`Isolate ${sub.name} subsystem`}
-                    >
-                      <Layers size={11} />
-                      <span>Focus Subsystem</span>
-                      <ChevronRight size={11} />
-                    </button>
-                  )}
-                </div>
-
-                {/* Grid of Channel Thumbnails */}
-                <div 
-                  style={{
-                    padding: '10px',
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))',
-                    gap: '8px'
-                  }}
-                >
-                  {sub.channels.map(({ name, stat }) => {
-                    const isChannelPass = stat.failCount === 0;
-                    const settlingStr = stat.settling !== null && stat.settling !== undefined
-                      ? `${typeof stat.settling === 'number' ? stat.settling.toFixed(2) : stat.settling} ${stat.unit || ''}`
-                      : '--';
-
-                    return (
-                      <div
-                        key={`ch-thumb-${name}`}
-                        onClick={() => onSelectSensor(name)}
-                        style={{
-                          background: 'var(--bg-panel)',
-                          border: `1px solid ${isChannelPass ? 'var(--border-subtle)' : 'var(--danger-border)'}`,
-                          borderRadius: '6px',
-                          padding: '8px 10px',
-                          cursor: 'pointer',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: '4px',
-                          transition: 'all 0.15s ease'
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.borderColor = 'var(--accent-cyan)';
-                          e.currentTarget.style.transform = 'translateY(-1px)';
-                          e.currentTarget.style.boxShadow = 'var(--shadow-sm)';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.borderColor = isChannelPass ? 'var(--border-subtle)' : 'var(--danger-border)';
-                          e.currentTarget.style.transform = 'none';
-                          e.currentTarget.style.boxShadow = 'none';
-                        }}
-                        title={`Click to view transient oscilloscope for ${name}`}
-                      >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span style={{ fontWeight: 700, fontSize: '11.5px', fontFamily: 'var(--font-mono)', color: 'var(--text-main)' }}>
-                            {name}
-                          </span>
-                          <span className={`status-pill-small ${isChannelPass ? 'pass' : 'fail'}`} style={{ fontSize: '9px', padding: '1px 5px' }}>
-                            {isChannelPass ? 'PASS' : `FAIL (${stat.failCount})`}
-                          </span>
-                        </div>
-
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: '2px' }}>
-                          <span style={{ fontSize: '10px', color: 'var(--text-dim)' }}>Settled at 525s:</span>
-                          <strong style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', color: isChannelPass ? 'var(--success)' : 'var(--danger)' }}>
-                            {settlingStr}
-                          </strong>
-                        </div>
-
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '9.5px', color: 'var(--text-dim)', paddingTop: '2px', borderTop: '1px solid var(--border-subtle)' }}>
-                          <span>Margin Buffer:</span>
-                          {stat.worstMargin !== null && stat.worstMargin !== undefined ? (
-                            <span style={{ 
-                              fontFamily: 'var(--font-mono)', 
-                              fontWeight: 'bold', 
-                              color: stat.worstMargin < 0 ? 'var(--danger)' : 'var(--success)' 
-                            }}>
-                              {stat.worstMargin >= 0 ? '+' : ''}{stat.worstMargin.toFixed(2)} {stat.unit || ''}
-                            </span>
-                          ) : (
-                            <span>--</span>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      )}
     </section>
   );
 };

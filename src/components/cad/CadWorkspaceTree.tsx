@@ -5,6 +5,9 @@ import {
   FolderOpen,
   Search,
   X,
+  Minus,
+  Maximize2,
+  Minimize2,
   Layers,
   AlertTriangle,
   Droplets,
@@ -27,6 +30,13 @@ interface CadWorkspaceTreeProps {
   onSelectSubsystem: (subsystem: SubsystemCategory | null) => void;
   onClose: () => void;
   onOpenFileClick: () => void;
+  showModbusOverlays?: boolean;
+  isMinimized?: boolean;
+  onMinimize?: () => void;
+  isMaximized?: boolean;
+  onToggleMaximize?: () => void;
+  onRestore?: () => void;
+  style?: React.CSSProperties;
 }
 
 const CATEGORY_META: Record<SubsystemCategory, { label: string; icon: React.ReactNode; color: string }> = {
@@ -48,7 +58,14 @@ export const CadWorkspaceTree: React.FC<CadWorkspaceTreeProps> = ({
   onSelectSensor,
   onSelectSubsystem,
   onClose,
-  onOpenFileClick
+  onOpenFileClick,
+  showModbusOverlays = false,
+  isMinimized = false,
+  onMinimize,
+  isMaximized = false,
+  onToggleMaximize,
+  onRestore,
+  style
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterMode, setFilterMode] = useState<'all' | 'failed' | 'passed'>('all');
@@ -109,8 +126,44 @@ export const CadWorkspaceTree: React.FC<CadWorkspaceTreeProps> = ({
   const totalFailedChannels = dataset ? Object.values(dataset.parameterStats).filter(s => s.failCount > 0).length : 0;
   const totalPassedChannels = totalChannels - totalFailedChannels;
 
+  // Minimized Collapsed Vertical Strip State
+  if (isMinimized) {
+    return (
+      <aside
+        className="cad-dock-panel cad-dock-minimized cad-dock-minimized-left"
+        title="Workspace Tree (Minimized) • Click to restore"
+        onClick={onRestore || onMinimize}
+      >
+        <div className="cad-dock-min-header">
+          <FolderOpen size={14} className="cad-dock-icon" />
+        </div>
+        <div className="cad-dock-min-label">
+          <span>WORKSPACE TREE</span>
+        </div>
+        <div className="cad-dock-min-actions" onClick={e => e.stopPropagation()}>
+          <button
+            type="button"
+            className="cad-dock-btn"
+            title="Restore Workspace Tree"
+            onClick={onRestore || onMinimize}
+          >
+            <Maximize2 size={12} />
+          </button>
+          <button
+            type="button"
+            className="cad-dock-btn cad-dock-btn-close"
+            title="Close Workspace Tree (Ctrl+1)"
+            onClick={onClose}
+          >
+            <X size={12} />
+          </button>
+        </div>
+      </aside>
+    );
+  }
+
   return (
-    <aside className="cad-dock-panel cad-workspace-tree-dock" aria-label="Workspace Channels Tree">
+    <aside className="cad-dock-panel cad-workspace-tree-dock" style={style} aria-label="Workspace Channels Tree">
       {/* Dock Window Title Bar */}
       <div className="cad-dock-header">
         <div className="cad-dock-title">
@@ -142,7 +195,28 @@ export const CadWorkspaceTree: React.FC<CadWorkspaceTreeProps> = ({
               </button>
             </>
           )}
+          {onMinimize && (
+            <button
+              type="button"
+              className="cad-dock-btn"
+              title="Minimize Workspace Tree"
+              onClick={onMinimize}
+            >
+              <Minus size={12} />
+            </button>
+          )}
+          {onToggleMaximize && (
+            <button
+              type="button"
+              className={`cad-dock-btn ${isMaximized ? 'active' : ''}`}
+              title={isMaximized ? "Restore Normal Size (Esc)" : "Full App Screen (Workspace Tree)"}
+              onClick={onToggleMaximize}
+            >
+              {isMaximized ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+            </button>
+          )}
           <button
+            type="button"
             className="cad-dock-btn cad-dock-btn-close"
             title="Close Workspace Tree (Ctrl+1)"
             onClick={onClose}
@@ -303,7 +377,9 @@ export const CadWorkspaceTree: React.FC<CadWorkspaceTreeProps> = ({
                                 </span>
 
                                 <span className="cad-channel-tag" title={name}>
-                                  <CadRegisterBadge channelName={name} style={{ marginRight: '4px' }} />
+                                  {showModbusOverlays && (
+                                    <CadRegisterBadge channelName={name} style={{ marginRight: '4px' }} />
+                                  )}
                                   {name}
                                 </span>
 

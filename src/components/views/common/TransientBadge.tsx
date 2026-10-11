@@ -61,6 +61,8 @@ export const TransientBadge: React.FC<TransientBadgeProps> = ({
     ? `${trackingErrorPercent >= 0 ? '+' : ''}${trackingErrorPercent.toFixed(1)}%`
     : null;
 
+  const displayStability = settlingStability === 'DEVIATING' ? 'UNSTABLE' : settlingStability;
+
   return (
     <span
       className={`transient-tracking-badge ${className}`}
@@ -78,7 +80,7 @@ export const TransientBadge: React.FC<TransientBadgeProps> = ({
         border: style.border,
         whiteSpace: 'nowrap'
       }}
-      title={`Setpoint: ${metrics.setpoint} ${unit} | Error: ${deltaStr} (${pctStr}) | Stability: ${settlingStability}`}
+      title={`Setpoint: ${metrics.setpoint} ${unit} | Error: ${deltaStr} (${pctStr}) | Stability: ${displayStability}`}
     >
       {settlingStability === 'STABLE' ? (
         <CheckCircle2 size={compact ? 9 : 11} />
@@ -88,7 +90,7 @@ export const TransientBadge: React.FC<TransientBadgeProps> = ({
         <AlertTriangle size={compact ? 9 : 11} />
       )}
 
-      <span>{settlingStability}</span>
+      <span>{displayStability}</span>
 
       {showDelta && deltaStr && (
         <span style={{ opacity: 0.85, fontWeight: 500 }}>

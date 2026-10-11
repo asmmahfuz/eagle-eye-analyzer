@@ -6,3 +6,6 @@ export type { GroupTelemetryProps } from './GroupTelemetry';
 
 export { TestTelemetry } from './TestTelemetry';
 export type { TestTelemetryProps } from './TestTelemetry';
+
+export { createStageDwellPlugin } from './stageDwellPlugin';
+export type { StageDwellPluginOptions } from './stageDwellPlugin';

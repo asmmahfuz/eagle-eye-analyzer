@@ -4,8 +4,7 @@ import {
   EagleEyeDataset, 
   SubsystemCategory, 
   SUBSYSTEM_LABELS, 
-  ParameterSummary,
-  EvaluatedPoint
+  ParameterSummary 
 } from '../../../types';
 import { 
   Activity, 
@@ -16,22 +15,13 @@ import {
   Cpu, 
   Gauge, 
   Thermometer, 
-  ArrowLeft,
-  Sliders,
-  Table,
-  Cpu as ModbusIcon,
-  BarChart2
+  ArrowLeft
 } from '../../Icons';
-import { getRegisterByName } from '../../../engine/registers';
-import { CadRegisterBadge } from '../../cad/CadRegisterBadge';
 import { 
   getChannelTrackedQuantity, 
-  generateProgrammedTimeline, 
-  calculateChannelTransientProfile,
-  calculateStageTransientMetrics,
-  getProgrammedStage
+  generateProgrammedTimeline 
 } from '../../../engine/excitation';
-import { TransientBadge } from '../common/TransientBadge';
+import { createStageDwellPlugin } from './stageDwellPlugin';
 
 Chart.register(...registerables);
 
@@ -43,12 +33,13 @@ export interface TestTelemetryProps {
   onSelectSensor?: (sensorName: string) => void;
 }
 
+type TimebasePreset = 'all' | 'warmup' | 'ramp' | 'cooldown';
+
 export const TestTelemetry: React.FC<TestTelemetryProps> = ({
   dataset,
   selectedSensor,
   onSelectSubsystem,
-  onBackToOverview,
-  onSelectSensor
+  onBackToOverview
 }) => {
   const chartCanvasRef = useRef<HTMLCanvasElement>(null);
   const chartInstanceRef = useRef<Chart | null>(null);
@@ -58,6 +49,8 @@ export const TestTelemetry: React.FC<TestTelemetryProps> = ({
   const [showAbsLimits, setShowAbsLimits] = useState(true);
   const [showSetpointOverlay, setShowSetpointOverlay] = useState(false);
   const [highlightExtremes, setHighlightExtremes] = useState(true);
+  const [showStageDwells, setShowStageDwells] = useState(true);
+  const [timebase, setTimebase] = useState<TimebasePreset>('all');
 
   const [currentTheme, setCurrentTheme] = useState(() => 
     document.documentElement.getAttribute('data-theme') || 'light'
@@ -94,11 +87,7 @@ export const TestTelemetry: React.FC<TestTelemetryProps> = ({
   }, [sensorEvaluations]);
 
   const hasFail = failures.length > 0;
-
   const trackedQty = useMemo(() => getChannelTrackedQuantity(selectedSensor), [selectedSensor]);
-  const transientProfile = useMemo(() => {
-    return calculateChannelTransientProfile(selectedSensor, dataset);
-  }, [selectedSensor, dataset]);
 
   // Mean value fallback
   const meanValue = useMemo(() => {
@@ -108,6 +97,14 @@ export const TestTelemetry: React.FC<TestTelemetryProps> = ({
     if (validVals.length === 0) return null;
     return validVals.reduce((a, b) => a + b, 0) / validVals.length;
   }, [measurements, selectedSensor]);
+
+  // Dynamic span (Peak - Min)
+  const dynamicSpan = useMemo(() => {
+    if (typeof stats?.peak === 'number' && typeof stats?.min === 'number') {
+      return stats.peak - stats.min;
+    }
+    return null;
+  }, [stats]);
 
   // Subsystem icon helper
   const renderCategoryIcon = (cat: SubsystemCategory) => {
@@ -122,22 +119,7 @@ export const TestTelemetry: React.FC<TestTelemetryProps> = ({
     }
   };
 
-  // Authoritative Modbus register definition
-  const regDef = useMemo(() => getRegisterByName(selectedSensor), [selectedSensor]);
-  const modbusAddress = useMemo(() => {
-    if (regDef) return `Address ${regDef.address} (${regDef.displayName})`;
-    return 'Standard PLC Holding Register';
-  }, [regDef]);
-
-  // Dynamic span (Peak - Min)
-  const dynamicSpan = useMemo(() => {
-    if (typeof stats?.peak === 'number' && typeof stats?.min === 'number') {
-      return stats.peak - stats.min;
-    }
-    return null;
-  }, [stats]);
-
-  // Render Transient Chart
+  // Render Transient Oscilloscope Chart
   useEffect(() => {
     if (!chartCanvasRef.current) return;
     const ctx = chartCanvasRef.current.getContext('2d');
@@ -149,7 +131,6 @@ export const TestTelemetry: React.FC<TestTelemetryProps> = ({
 
     const labels = measurements.map(m => `${m['Time']}s`);
     const measuredData = measurements.map(m => m[selectedSensor]);
-    const flowSpData = measurements.map(m => m['Secondary Flow Setpoint']);
 
     // Build 3-sigma and abs limits
     const low3Sigma: (number | null)[] = [];
@@ -157,12 +138,35 @@ export const TestTelemetry: React.FC<TestTelemetryProps> = ({
     const absMinLine: (number | null)[] = [];
     const absMaxLine: (number | null)[] = [];
 
+    const isDp = selectedSensor.toLowerCase().includes('dp') || (unit.toLowerCase() === 'psi' && category === 'hydraulic');
+
     for (let mIdx = 0; mIdx < measurements.length; mIdx++) {
       const limitIdx = mIdx >= 2 ? Math.min(limits['mean-3Sigma'].length - 1, mIdx - 2) : 0;
-      low3Sigma.push(limits['mean-3Sigma']?.[limitIdx]?.[selectedSensor] ?? null);
-      high3Sigma.push(limits['mean+3Sigma']?.[limitIdx]?.[selectedSensor] ?? null);
-      absMinLine.push(limits['min']?.[limitIdx]?.[selectedSensor] ?? null);
-      absMaxLine.push(limits['max']?.[limitIdx]?.[selectedSensor] ?? null);
+      let low = limits['mean-3Sigma']?.[limitIdx]?.[selectedSensor] ?? null;
+      let high = limits['mean+3Sigma']?.[limitIdx]?.[selectedSensor] ?? null;
+      let absMin = limits['min']?.[limitIdx]?.[selectedSensor] ?? null;
+      let absMax = limits['max']?.[limitIdx]?.[selectedSensor] ?? null;
+
+      if (isDp) {
+        // Enforce physical DP properties: DP is strictly >= 0, normal max < 50
+        if (low !== null) {
+          low = low < 0 || Math.abs(low) > 200 ? 0 : Math.max(0, low);
+        }
+        if (high !== null && (high > 200 || high < 0)) {
+          high = 50;
+        }
+        if (absMin !== null) {
+          absMin = absMin < 0 || Math.abs(absMin) > 200 ? 0 : Math.max(0, absMin);
+        }
+        if (absMax !== null && (absMax > 200 || absMax === 6553.5)) {
+          absMax = high !== null ? Math.min(50, high) : 50;
+        }
+      }
+
+      low3Sigma.push(low);
+      high3Sigma.push(high);
+      absMinLine.push(absMin);
+      absMaxLine.push(absMax);
     }
 
     const isDark = currentTheme === 'dark';
@@ -174,7 +178,7 @@ export const TestTelemetry: React.FC<TestTelemetryProps> = ({
       : (isDark ? 'rgba(0, 210, 255, 0.08)' : 'rgba(2, 132, 199, 0.08)');
 
     // Point colors and radii
-    const pointBgColors = measurements.map((m, idx) => {
+    const pointBgColors = measurements.map((_, idx) => {
       if (idx < 2) return '#64748b';
       const check = sensorEvaluations.find(c => c.mIdx === idx);
       if (check && check.status === 'fail') return '#ef4444';
@@ -289,12 +293,39 @@ export const TestTelemetry: React.FC<TestTelemetryProps> = ({
       });
     }
 
+    // Determine scale limits for timebase preset
+    let xMin: string | undefined = undefined;
+    let xMax: string | undefined = undefined;
+
+    if (timebase === 'warmup') {
+      xMin = labels[0];
+      const endIdx = measurements.findIndex(m => m['Time'] === 135);
+      xMax = endIdx !== -1 ? labels[endIdx] : labels[Math.min(5, labels.length - 1)];
+    } else if (timebase === 'ramp') {
+      const startIdx = measurements.findIndex(m => m['Time'] === 135);
+      const endIdx = measurements.findIndex(m => m['Time'] === 375);
+      xMin = startIdx !== -1 ? labels[startIdx] : labels[0];
+      xMax = endIdx !== -1 ? labels[endIdx] : labels[labels.length - 1];
+    } else if (timebase === 'cooldown') {
+      const startIdx = measurements.findIndex(m => m['Time'] === 375);
+      xMin = startIdx !== -1 ? labels[startIdx] : labels[0];
+      xMax = labels[labels.length - 1];
+    }
+
+    const stageDwellPlugin = createStageDwellPlugin({
+      stages,
+      measurements,
+      isDark,
+      enabled: showStageDwells
+    });
+
     chartInstanceRef.current = new Chart(ctx, {
       type: 'line',
       data: {
         labels,
         datasets
       },
+      plugins: [stageDwellPlugin],
       options: {
         responsive: true,
         maintainAspectRatio: false,
@@ -305,7 +336,7 @@ export const TestTelemetry: React.FC<TestTelemetryProps> = ({
         },
         plugins: {
           legend: {
-            display: false // Controlled via top custom toolbar
+            display: false
           },
           tooltip: {
             backgroundColor: isDark ? 'rgba(11, 17, 32, 0.95)' : 'rgba(255, 255, 255, 0.98)',
@@ -320,7 +351,8 @@ export const TestTelemetry: React.FC<TestTelemetryProps> = ({
               title: function(tooltipItems) {
                 const idx = tooltipItems[0].dataIndex;
                 const m = measurements[idx];
-                return `Time: ${m['Time']}sec | Flow SP: ${m['Secondary Flow Setpoint'] ?? '-'} ${flowSpUnit} | DP SP: ${m['Secondary DP Setpoint'] ?? '-'} ${dpSpUnit}`;
+                const stage = stages.find(s => s.timeSec === m['Time']);
+                return `Time: ${m['Time']}s ${stage ? `(Stage ${stage.stageNum})` : ''} | Flow SP: ${m['Secondary Flow Setpoint'] ?? '-'} ${flowSpUnit} | DP SP: ${m['Secondary DP Setpoint'] ?? '-'} ${dpSpUnit}`;
               },
               label: function(context) {
                 const val = context.parsed.y;
@@ -345,14 +377,25 @@ export const TestTelemetry: React.FC<TestTelemetryProps> = ({
         },
         scales: {
           x: {
+            min: xMin,
+            max: xMax,
             grid: { color: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.06)' },
             ticks: { color: '#64748b', font: { family: "'JetBrains Mono', monospace", size: 9.5 } }
           },
           y: {
             type: 'linear',
             position: 'left',
+            ...(isDp ? {
+              min: 0,
+              max: Math.max(50, Math.ceil(((stats?.peak ?? 0) * 1.1) / 10) * 10),
+              suggestedMax: 50,
+            } : {}),
             grid: { color: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.06)' },
-            ticks: { color: isDark ? '#94a3b8' : '#334155', font: { family: "'JetBrains Mono', monospace", size: 9.5 } },
+            ticks: { 
+              color: isDark ? '#94a3b8' : '#334155', 
+              font: { family: "'JetBrains Mono', monospace", size: 9.5 },
+              ...(isDp ? { stepSize: 10 } : {})
+            },
             title: {
               display: true,
               text: unit ? `${selectedSensor} (${unit})` : selectedSensor,
@@ -391,18 +434,22 @@ export const TestTelemetry: React.FC<TestTelemetryProps> = ({
     showAbsLimits, 
     showSetpointOverlay, 
     highlightExtremes, 
+    showStageDwells,
+    timebase,
     sensorEvaluations, 
     stats, 
     currentTheme, 
     hasFail, 
     flowSpUnit, 
     dpSpUnit, 
-    unit
+    unit,
+    stages,
+    trackedQty
   ]);
 
   return (
-    <section className="cad-tab-focused-card row-telemetry-test">
-      {/* 1. Single-Channel Header Bar */}
+    <section className="cad-tab-focused-card row-telemetry-test" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+      {/* 1. Single-Channel Scope Header Bar */}
       <div className="row-header-bar">
         <div className="row-title-group">
           {onBackToOverview && (
@@ -451,16 +498,90 @@ export const TestTelemetry: React.FC<TestTelemetryProps> = ({
         </div>
       </div>
 
-      {/* 2. Waveform & 3-Sigma Plot Card */}
-      <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-card)' }}>
-        <div className="plot-header-bar" style={{ padding: '0 0 10px 0', borderBottom: 'none' }}>
+      {/* 2. Laboratory Oscilloscope Screen & Toolbar */}
+      <div style={{ padding: '12px 14px', flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--bg-card)' }}>
+        <div className="plot-header-bar" style={{ padding: '0 0 10px 0', borderBottom: '1px solid var(--border-subtle)', flexWrap: 'wrap', gap: '8px' }}>
           <div className="plot-title-group">
             <Activity size={15} className="text-cyan-400" />
-            <span className="plot-title">Transient Laboratory Oscilloscope & Tolerance Envelope</span>
-            <span className="plot-subtitle">Interactive 10-Stage Time Series Analysis</span>
+            <span className="plot-title">Laboratory Multi-Channel Transient Oscilloscope</span>
+            <span className="plot-subtitle">High-Speed 1 Hz Time Series (0s – 525s Cooldown Run)</span>
           </div>
 
-          <div className="plot-controls-group">
+          <div className="plot-controls-group" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+            {/* Timebase Presets */}
+            <div style={{ display: 'flex', border: '1px solid var(--border-color)', borderRadius: '5px', overflow: 'hidden' }}>
+              <button
+                type="button"
+                onClick={() => setTimebase('all')}
+                style={{
+                  padding: '3px 8px',
+                  fontSize: '10.5px',
+                  border: 'none',
+                  cursor: 'pointer',
+                  background: timebase === 'all' ? 'var(--accent-cyan)' : 'var(--bg-subtle)',
+                  color: timebase === 'all' ? '#ffffff' : 'var(--text-main)',
+                  fontWeight: timebase === 'all' ? 700 : 500
+                }}
+                title="View full 0s to 525s cooldown run"
+              >
+                All (0–525s)
+              </button>
+              <button
+                type="button"
+                onClick={() => setTimebase('warmup')}
+                style={{
+                  padding: '3px 8px',
+                  fontSize: '10.5px',
+                  border: 'none',
+                  borderLeft: '1px solid var(--border-color)',
+                  cursor: 'pointer',
+                  background: timebase === 'warmup' ? 'var(--accent-cyan)' : 'var(--bg-subtle)',
+                  color: timebase === 'warmup' ? '#ffffff' : 'var(--text-main)',
+                  fontWeight: timebase === 'warmup' ? 700 : 500
+                }}
+                title="Zoom into Warmup & Low-Flow Baseline (Stages 1–3)"
+              >
+                Warmup (S1–S3)
+              </button>
+              <button
+                type="button"
+                onClick={() => setTimebase('ramp')}
+                style={{
+                  padding: '3px 8px',
+                  fontSize: '10.5px',
+                  border: 'none',
+                  borderLeft: '1px solid var(--border-color)',
+                  cursor: 'pointer',
+                  background: timebase === 'ramp' ? 'var(--accent-cyan)' : 'var(--bg-subtle)',
+                  color: timebase === 'ramp' ? '#ffffff' : 'var(--text-main)',
+                  fontWeight: timebase === 'ramp' ? 700 : 500
+                }}
+                title="Zoom into Load Ramp & Peak Excitation (Stages 4–6)"
+              >
+                Load Ramp (S4–S6)
+              </button>
+              <button
+                type="button"
+                onClick={() => setTimebase('cooldown')}
+                style={{
+                  padding: '3px 8px',
+                  fontSize: '10.5px',
+                  border: 'none',
+                  borderLeft: '1px solid var(--border-color)',
+                  cursor: 'pointer',
+                  background: timebase === 'cooldown' ? 'var(--accent-cyan)' : 'var(--bg-subtle)',
+                  color: timebase === 'cooldown' ? '#ffffff' : 'var(--text-main)',
+                  fontWeight: timebase === 'cooldown' ? 700 : 500
+                }}
+                title="Zoom into Steady-State Cooldown (Stages 7–10)"
+              >
+                Steady-State (S7–S10)
+              </button>
+            </div>
+
+            <div className="divider-vertical" style={{ height: '16px' }}></div>
+
+            {/* Oscilloscope Channel Toggles */}
             <label className="plot-toggle-btn">
               <input 
                 type="checkbox" 
@@ -478,7 +599,7 @@ export const TestTelemetry: React.FC<TestTelemetryProps> = ({
                 onChange={(e) => setShowAbsLimits(e.target.checked)} 
               />
               <span className="legend-indicator dotted-red"></span>
-              <span>Min / Max Limits</span>
+              <span>Min / Max</span>
             </label>
 
             <label className="plot-toggle-btn" title="Toggle 10-stage ideal stepped programmed setpoint curve">
@@ -490,9 +611,19 @@ export const TestTelemetry: React.FC<TestTelemetryProps> = ({
               <span className="legend-indicator dotted-amber"></span>
               <span>
                 {trackedQty !== 'none' 
-                  ? `${trackedQty.toUpperCase()} Setpoint (Stepped)` 
-                  : 'Flow Setpoint (Stepped)'}
+                  ? `${trackedQty.toUpperCase()} SP` 
+                  : 'Flow SP'}
               </span>
+            </label>
+
+            <label className="plot-toggle-btn" title="Toggle vertical stage dwell transition boundary lines">
+              <input 
+                type="checkbox" 
+                checked={showStageDwells} 
+                onChange={(e) => setShowStageDwells(e.target.checked)} 
+              />
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--accent-cyan)' }}>┊ S1..S10</span>
+              <span>Stage Dwells</span>
             </label>
 
             <label className="plot-toggle-btn">
@@ -501,313 +632,97 @@ export const TestTelemetry: React.FC<TestTelemetryProps> = ({
                 checked={highlightExtremes} 
                 onChange={(e) => setHighlightExtremes(e.target.checked)} 
               />
-              <span>Annotate Extremes</span>
+              <span>Extremes</span>
             </label>
           </div>
         </div>
 
-        {/* Canvas Area */}
-        <div className="plot-canvas-area" style={{ height: '420px', minHeight: '360px', padding: 0 }}>
+        {/* Canvas Area: Expanded responsive oscilloscope display */}
+        <div className="plot-canvas-area" style={{ height: '520px', minHeight: '440px', padding: '8px 0', flex: 1 }}>
           <canvas ref={chartCanvasRef}></canvas>
         </div>
-      </div>
 
-      {/* 3. Modbus Register Telemetry & Triad Metrics Grid */}
-      <div style={{ padding: '14px', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-panel)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+        {/* 3. Oscilloscope Metrology Status HUD */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(135px, 1fr))',
+          gap: '8px',
+          paddingTop: '10px',
+          borderTop: '1px solid var(--border-color)',
+          background: 'var(--bg-panel)',
+          padding: '8px 12px',
+          borderRadius: '6px'
+        }}>
           <div>
-            <h3 className="cad-card-subtitle" style={{ margin: 0, fontSize: '12.5px' }}>
-              Modbus Holding Register Telemetry & Statistical Process Control (SPC)
-            </h3>
-            <span style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>
-              Hardware register decoding, 0-10V analog scaling, parametric triad and 3-sigma tolerance boundaries
-            </span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <ModbusIcon size={13} className="text-purple-400" />
-            <span style={{ fontSize: '10.5px', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>
-              Port 502 (169.254.244.6)
-            </span>
-          </div>
-        </div>
-
-        <div className="cad-property-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(310px, 1fr))', gap: '10px' }}>
-          {/* Card A: Modbus Register Hardware & Conditioning */}
-          <div className="cad-prop-group">
-            <div className="cad-prop-group-header">
-              <span className="cad-prop-chevron">▾</span>
-              <span className="cad-prop-group-title">Modbus TCP & Signal Conditioning</span>
+            <div style={{ fontSize: '9.5px', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Process Mean (μ)</div>
+            <div style={{ fontSize: '12px', fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--text-main)' }}>
+              {stats?.nominalMean !== null && stats?.nominalMean !== undefined 
+                ? `${stats.nominalMean.toFixed(2)} ${unit}` 
+                : (meanValue !== null ? `${meanValue.toFixed(2)} ${unit}` : '--')}
             </div>
-            <table className="cad-prop-table">
-              <tbody>
-                <tr>
-                  <td className="cad-prop-key">Holding Register</td>
-                  <td className="cad-prop-val font-mono font-bold text-cyan">{modbusAddress}</td>
-                </tr>
-                <tr>
-                  <td className="cad-prop-key">Data Representation</td>
-                  <td className="cad-prop-val font-mono">
-                    {category === 'pressure' || selectedSensor.includes('DP') 
-                      ? 'Signed Int16 (Two\'s Complement)' 
-                      : 'IEEE 754 Float32'}
-                  </td>
-                </tr>
-                <tr>
-                  <td className="cad-prop-key">0–10V Scaling</td>
-                  <td className="cad-prop-val">
-                    {category === 'pump' || selectedSensor.includes('FCV') ? (
-                      <span className="cad-active-tag">10× Normalized (0–100%)</span>
-                    ) : (
-                      <span className="cad-dim-tag">Direct Physical Unit</span>
-                    )}
-                  </td>
-                </tr>
-                <tr>
-                  <td className="cad-prop-key">Sampling Interval</td>
-                  <td className="cad-prop-val font-mono">1,000 ms (1 Hz) | Dwells 15s–60s</td>
-                </tr>
-                <tr>
-                  <td className="cad-prop-key">Sentinel Health (0xFFFF)</td>
-                  <td className="cad-prop-val font-mono">
-                    {stats?.peak === 6553.5 ? (
-                      <span className="text-red font-bold">0xFFFF Open-Circuit Fault</span>
-                    ) : (
-                      <span className="text-green font-bold">Normal Transducer Bus</span>
-                    )}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          {/* Card B: Statistical Triad & SPC Distribution Metrics */}
-          <div className="cad-prop-group">
-            <div className="cad-prop-group-header">
-              <span className="cad-prop-chevron">▾</span>
-              <span className="cad-prop-group-title">Statistical Distribution & Parametric Triad</span>
-            </div>
-            <table className="cad-prop-table">
-              <tbody>
-                <tr>
-                  <td className="cad-prop-key">Lower 3σ (μ - 3σ)</td>
-                  <td className="cad-prop-val font-mono">
-                    {stats?.low3Sigma !== null && stats?.low3Sigma !== undefined 
-                      ? `${stats.low3Sigma.toFixed(2)} ${unit}` 
-                      : '--'}
-                  </td>
-                </tr>
-                <tr>
-                  <td className="cad-prop-key">Process Mean (μ)</td>
-                  <td className="cad-prop-val font-mono font-bold">
-                    {stats?.nominalMean !== null && stats?.nominalMean !== undefined 
-                      ? `${stats.nominalMean.toFixed(2)} ${unit}` 
-                      : (meanValue !== null ? `${meanValue.toFixed(2)} ${unit}` : '--')}
-                  </td>
-                </tr>
-                <tr>
-                  <td className="cad-prop-key">Upper 3σ (μ + 3σ)</td>
-                  <td className="cad-prop-val font-mono">
-                    {stats?.high3Sigma !== null && stats?.high3Sigma !== undefined 
-                      ? `${stats.high3Sigma.toFixed(2)} ${unit}` 
-                      : '--'}
-                  </td>
-                </tr>
-                <tr>
-                  <td className="cad-prop-key">Process Sigma (σ)</td>
-                  <td className="cad-prop-val font-mono text-amber">
-                    {stats?.processSigma !== null && stats?.processSigma !== undefined 
-                      ? `${stats.processSigma.toFixed(3)} ${unit}` 
-                      : '--'}
-                  </td>
-                </tr>
-                <tr>
-                  <td className="cad-prop-key">Triad: Peak / Min / Settle</td>
-                  <td className="cad-prop-val font-mono">
-                    P: <strong>{typeof stats?.peak === 'number' ? stats.peak.toFixed(1) : (stats?.peak ?? '--')}</strong> | M: <strong>{typeof stats?.min === 'number' ? stats.min.toFixed(1) : (stats?.min ?? '--')}</strong> | S: <strong>{typeof stats?.settling === 'number' ? stats.settling.toFixed(1) : (stats?.settling ?? '--')}</strong>
-                  </td>
-                </tr>
-                {dynamicSpan !== null && (
-                  <tr>
-                    <td className="cad-prop-key">Dynamic Peak-to-Peak Span</td>
-                    <td className="cad-prop-val font-mono">
-                      Δ {dynamicSpan.toFixed(2)} {unit}
-                    </td>
-                  </tr>
-                )}
-                <tr>
-                  <td className="cad-prop-key">Worst Margin Buffer</td>
-                  <td className="cad-prop-val font-mono font-bold">
-                    {stats?.worstMargin !== null && stats?.worstMargin !== undefined ? (
-                      <span style={{ color: stats.worstMargin < 0 ? 'var(--danger)' : 'var(--success)' }}>
-                        {stats.worstMargin >= 0 ? '+' : ''}{stats.worstMargin.toFixed(2)} {unit}
-                      </span>
-                    ) : (
-                      '--'
-                    )}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          {/* Card C: Dynamic Transient Tracking & Settling Performance */}
-          <div className="cad-prop-group">
-            <div className="cad-prop-group-header">
-              <span className="cad-prop-chevron">▾</span>
-              <span className="cad-prop-group-title">Dynamic Transient Tracking & Setpoint Metrics</span>
-            </div>
-            <table className="cad-prop-table">
-              <tbody>
-                <tr>
-                  <td className="cad-prop-key">Tracked Loop Domain</td>
-                  <td className="cad-prop-val font-mono font-bold text-cyan">
-                    {trackedQty !== 'none' ? `${trackedQty.toUpperCase()} Excitation Loop (Reg 200–202)` : 'Uncoupled / Direct Feedback'}
-                  </td>
-                </tr>
-                <tr>
-                  <td className="cad-prop-key">Settling Stability</td>
-                  <td className="cad-prop-val">
-                    {transientProfile.overallStability !== 'N/A' ? (
-                      <span className={`status-pill-small ${transientProfile.overallStability === 'STABLE' ? 'pass' : (transientProfile.overallStability === 'MARGINAL' ? 'warn' : 'fail')}`}>
-                        {transientProfile.overallStability} ({transientProfile.settlingScorePercent}% Score)
-                      </span>
-                    ) : (
-                      <span className="cad-dim-tag">Baseline Steady-State</span>
-                    )}
-                  </td>
-                </tr>
-                <tr>
-                  <td className="cad-prop-key">Avg |Tracking Error|</td>
-                  <td className="cad-prop-val font-mono">
-                    {transientProfile.avgTrackingError !== null ? `±${transientProfile.avgTrackingError} ${unit}` : '--'}
-                  </td>
-                </tr>
-                <tr>
-                  <td className="cad-prop-key">Max Tracking Deficit</td>
-                  <td className="cad-prop-val font-mono">
-                    {transientProfile.maxTrackingError !== null ? `±${transientProfile.maxTrackingError} ${unit}` : '--'}
-                  </td>
-                </tr>
-                <tr>
-                  <td className="cad-prop-key">Peak Step Overshoot</td>
-                  <td className="cad-prop-val font-mono">
-                    {transientProfile.maxOvershootPercent !== null ? `+${transientProfile.maxOvershootPercent}%` : '0.0%'}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-      {/* 4. 10-Stage Operating Dwell Points Ledger */}
-      <div style={{ padding: '14px', flex: 1, overflowY: 'auto' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-          <div>
-            <h3 className="cad-card-subtitle" style={{ margin: 0, fontSize: '13px' }}>
-              10-Stage Operating Dwell Points Ledger ({selectedSensor})
-            </h3>
-            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-              Step-by-step dwell evaluation vs 3σ tolerance limits, sigma deviation (Z), and margin buffer
-            </span>
           </div>
 
           <div>
-            {hasFail ? (
-              <span className="cad-tab-badge-count fail">{failures.length} Out-of-Tolerance Failures</span>
-            ) : (
-              <span className="cad-tab-badge-count pass">100% Tolerance Compliance</span>
-            )}
+            <div style={{ fontSize: '9.5px', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Process Sigma (σ)</div>
+            <div style={{ fontSize: '12px', fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--accent-amber)' }}>
+              {stats?.processSigma !== null && stats?.processSigma !== undefined 
+                ? `±${stats.processSigma.toFixed(3)} ${unit}` 
+                : '--'}
+            </div>
           </div>
-        </div>
 
-        <div className="datasheet-table-wrapper" style={{ maxHeight: '340px', overflowY: 'auto' }}>
-          <table className="datasheet-table">
-            <thead>
-              <tr>
-                <th>Time (Stage)</th>
-                <th>Flow SP</th>
-                <th>DP SP</th>
-                <th>Measured Value</th>
-                <th>Lower 3σ (μ - 3σ)</th>
-                <th>Process Mean (μ)</th>
-                <th>Upper 3σ (μ + 3σ)</th>
-                <th>Process Sigma (σ)</th>
-                <th>Sigma Dev (Z)</th>
-                <th>Margin Buffer</th>
-                <th>Transient Tracking (ΔSP)</th>
-                <th>3σ Verdict</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sensorEvaluations.map((pt, idx) => {
-                const isFail = pt.status === 'fail';
-                const isWarn = pt.status === 'warn';
-                return (
-                  <tr key={`${pt.timeSec}-${idx}`} className={isFail ? 'row-failed' : (isWarn ? 'row-warn' : '')}>
-                    <td className="time-col font-mono">
-                      <span>{pt.timeSec}s</span>
-                      <span className="stage-num-tag">Stage {Math.min(10, Math.floor(idx / 3) + 1)}</span>
-                    </td>
-                    <td className="sp-col font-mono">{pt.flowSp !== null ? `${pt.flowSp} ${flowSpUnit}` : '-'}</td>
-                    <td className="sp-col font-mono">{pt.dpSp !== null ? `${pt.dpSp} ${dpSpUnit}` : '-'}</td>
-                    <td className="val-col font-mono font-bold">
-                      {typeof pt.measured === 'number' ? pt.measured.toFixed(2) : (pt.measured ?? '-')} {pt.unit}
-                    </td>
-                    <td className="limit-col font-mono">
-                      {typeof pt.lowLimit === 'number' ? `${pt.lowLimit.toFixed(2)} ${pt.unit}` : (pt.lowLimit ?? '-')}
-                    </td>
-                    <td className="mean-col font-mono">
-                      {typeof pt.nominalMean === 'number' ? `${pt.nominalMean.toFixed(2)} ${pt.unit}` : '-'}
-                    </td>
-                    <td className="limit-col font-mono">
-                      {typeof pt.highLimit === 'number' ? `${pt.highLimit.toFixed(2)} ${pt.unit}` : (pt.highLimit ?? '-')}
-                    </td>
-                    <td className="sigma-col font-mono text-xs">
-                      {typeof pt.processSigma === 'number' ? (
-                        <span>
-                          {pt.processSigma.toFixed(3)} <span className="text-slate-400 font-normal">(±{pt.threeSigmaSpan?.toFixed(2)})</span>
-                        </span>
-                      ) : '-'}
-                    </td>
-                    <td className="z-col font-mono">
-                      {typeof pt.zScore === 'number' ? (
-                        <span className={`z-score-pill ${Math.abs(pt.zScore) > 3.0 ? 'fail' : (Math.abs(pt.zScore) > 2.5 ? 'warn' : 'pass')}`}>
-                          {pt.zScore > 0 ? '+' : ''}{pt.zScore.toFixed(2)}σ
-                        </span>
-                      ) : '-'}
-                    </td>
-                    <td className="margin-col font-mono">
-                      {pt.marginBuffer !== null ? (
-                        <span className={pt.marginBuffer < 0 ? 'text-rose-400 font-bold' : 'text-emerald-400'}>
-                          {pt.marginBuffer >= 0 ? '+' : ''}{pt.marginBuffer.toFixed(2)} {pt.unit}
-                        </span>
-                      ) : '-'}
-                    </td>
-                    <td className="tracking-col font-mono" style={{ textAlign: 'center' }}>
-                      {(() => {
-                        const stg = stages.find(s => s.timeSec === pt.timeSec);
-                        const progStage = getProgrammedStage(stg ? stg.stageNum : Math.min(10, Math.floor(idx / 3) + 1));
-                        const tMetrics = (progStage && typeof pt.measured === 'number')
-                          ? calculateStageTransientMetrics(selectedSensor, progStage, pt.measured, pt.unit)
-                          : null;
-                        return tMetrics ? (
-                          <TransientBadge metrics={tMetrics} compact showDelta />
-                        ) : (
-                          <span style={{ color: 'var(--text-dim)', fontSize: '11px' }}>--</span>
-                        );
-                      })()}
-                    </td>
-                    <td className="status-col">
-                      <span className={`status-pill-small ${pt.status}`}>
-                        {isFail ? 'FAIL (>3σ)' : (isWarn ? 'WARN' : 'PASS (≤3σ)')}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <div>
+            <div style={{ fontSize: '9.5px', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Peak (Max)</div>
+            <div style={{ fontSize: '12px', fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--text-main)' }}>
+              {typeof stats?.peak === 'number' ? `${stats.peak.toFixed(1)} ${unit}` : (stats?.peak ?? '--')}
+            </div>
+          </div>
+
+          <div>
+            <div style={{ fontSize: '9.5px', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Minimum (Min)</div>
+            <div style={{ fontSize: '12px', fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--text-main)' }}>
+              {typeof stats?.min === 'number' ? `${stats.min.toFixed(1)} ${unit}` : (stats?.min ?? '--')}
+            </div>
+          </div>
+
+          <div>
+            <div style={{ fontSize: '9.5px', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Settling (525s)</div>
+            <div style={{ fontSize: '12px', fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--accent-cyan)' }}>
+              {typeof stats?.settling === 'number' ? `${stats.settling.toFixed(1)} ${unit}` : (stats?.settling ?? '--')}
+            </div>
+          </div>
+
+          <div>
+            <div style={{ fontSize: '9.5px', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Worst Margin Buffer</div>
+            <div style={{ 
+              fontSize: '12px', 
+              fontWeight: 700, 
+              fontFamily: 'var(--font-mono)', 
+              color: (stats?.worstMargin ?? 0) < 0 ? 'var(--danger)' : 'var(--success)' 
+            }}>
+              {stats?.worstMargin !== null && stats?.worstMargin !== undefined 
+                ? `${stats.worstMargin >= 0 ? '+' : ''}${stats.worstMargin.toFixed(2)} ${unit}` 
+                : '--'}
+            </div>
+          </div>
+
+          {dynamicSpan !== null && (
+            <div>
+              <div style={{ fontSize: '9.5px', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Dynamic Span (Δ)</div>
+              <div style={{ fontSize: '12px', fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--text-main)' }}>
+                {dynamicSpan.toFixed(2)} {unit}
+              </div>
+            </div>
+          )}
+
+          <div>
+            <div style={{ fontSize: '9.5px', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>3σ Bounds (μ±3σ)</div>
+            <div style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
+              {stats?.low3Sigma !== null && stats?.high3Sigma !== null && stats?.low3Sigma !== undefined && stats?.high3Sigma !== undefined
+                ? `[${stats.low3Sigma.toFixed(1)} ~ ${stats.high3Sigma.toFixed(1)}]`
+                : '--'}
+            </div>
+          </div>
         </div>
       </div>
     </section>

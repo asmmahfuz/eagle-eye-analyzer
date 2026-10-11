@@ -101,7 +101,7 @@ export const FaultCodeCard: React.FC<FaultCodeCardProps> = ({
         <span className="fault-summary-text">{summary}</span>
         {worstDeviationStr && (
           <span className="fault-worst-deviation">
-            Worst Excursion: <strong>{worstDeviationStr}</strong>
+            Max Error: <strong>{worstDeviationStr}</strong>
           </span>
         )}
       </div>

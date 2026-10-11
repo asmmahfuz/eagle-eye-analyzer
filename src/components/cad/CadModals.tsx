@@ -69,28 +69,33 @@ export const CadShortcutsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
               </tr>
               <tr>
                 <td><kbd>Alt</kbd> + <kbd>1</kbd></td>
-                <td>Switch to Data Sheet & Operating Stages</td>
+                <td>Switch to Data Sheet & Verification Matrix</td>
                 <td>View</td>
               </tr>
               <tr>
                 <td><kbd>Alt</kbd> + <kbd>2</kbd></td>
-                <td>Switch to Telemetry Scope</td>
+                <td>Switch to Telemetry Oscilloscope</td>
                 <td>View</td>
               </tr>
               <tr>
                 <td><kbd>Alt</kbd> + <kbd>3</kbd></td>
-                <td>Switch to Diagnostics & Rework Punch-List</td>
+                <td>Switch to System Dynamics & Stage Coupling</td>
                 <td>View</td>
               </tr>
               <tr>
-                <td><kbd>F5</kbd> / <kbd>Ctrl+Shift+R</kbd></td>
-                <td>Run Live Test-Bench (Excitation Profile)</td>
-                <td>Test Bay</td>
+                <td><kbd>Alt</kbd> + <kbd>4</kbd></td>
+                <td>Switch to Diagnostics & Rework Directives</td>
+                <td>View</td>
               </tr>
               <tr>
                 <td><kbd>F11</kbd></td>
                 <td>Toggle Fullscreen Mode</td>
                 <td>Window</td>
+              </tr>
+              <tr>
+                <td><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>M</kbd></td>
+                <td>Open Modbus Holding Register Map (Terminal)</td>
+                <td>Terminal</td>
               </tr>
               <tr>
                 <td><kbd>Esc</kbd></td>
@@ -110,7 +115,7 @@ export const CadShortcutsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
 };
 
 export { CadModbusModal } from './modbus/CadModbusModal';
-export { CadLiveTestModal } from './runner/CadLiveTestModal';
+export { CadAdvancedMetricsModal } from './CadAdvancedMetricsModal';
 
 export const CadAboutModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
   if (!isOpen) return null;

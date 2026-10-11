@@ -1,7 +1,7 @@
 /**
  * Shared Analytical & Diagnostic Helpers
  * 
- * Part of Eagle Eye™ 3-Tier Modular Component Architecture (Phase 9 - Task 9.2).
+ * Part of Eagle Eye™ 3-Tier Modular Component Architecture (Phase 16 - Task 16.6).
  * Pure mathematical deficit calculations, excursion delta metrics, and shopfloor
  * root-cause engineering domain attribution with zero React state dependencies.
  */
@@ -9,6 +9,7 @@
 import type { SubsystemCategory, EvaluatedPoint, FailurePoint } from '../../../types';
 
 export type { FailurePoint };
+export * from './prescriptiveGuide';
 
 /**
  * Detailed excursion deficit metrics representing the exact numerical gap
@@ -46,19 +47,6 @@ export interface RootCauseAction {
 /**
  * Computes exact numeric excursion deficit (Δ), percentage deviation relative to the limit,
  * and boundary breach status for an evaluated point or failure record.
- * 
- * Mathematical Formulation:
- * - Lower Breach (measured < lowLimit):
- *     Δ = measured - lowLimit (strictly negative)
- *     % Deviation = (Δ / |lowLimit|) * 100
- * - Upper Breach (measured > highLimit):
- *     Δ = measured - highLimit (strictly positive)
- *     % Deviation = (Δ / |highLimit|) * 100
- * - In-Bounds / Fallback (marginBuffer):
- *     Δ = marginBuffer
- * 
- * @param f The failure point or evaluated telemetry point
- * @returns ExcursionDeficitInfo containing exact numeric deltas and formatted strings
  */
 export function getExcursionDeficitInfo(
   f: EvaluatedPoint | {
@@ -72,7 +60,6 @@ export function getExcursionDeficitInfo(
   const meas = typeof f.measured === 'number' ? f.measured : null;
   const unitStr = f.unit ? ` ${f.unit}` : '';
 
-  // Non-numeric or missing reading
   if (meas === null) {
     return {
       deltaVal: 0,
@@ -114,7 +101,6 @@ export function getExcursionDeficitInfo(
     };
   }
 
-  // Fallback to margin buffer if present
   const buf = typeof f.marginBuffer === 'number' ? f.marginBuffer : 0;
   return {
     deltaVal: buf,
@@ -128,20 +114,10 @@ export function getExcursionDeficitInfo(
 
 /**
  * Returns physical engineering domain classification and shopfloor rework directives
- * partitioned by subsystem category, parameter identifier, and optional firmware version.
- * 
- * Complies with Invariant 4 (Root-Cause Subsystem Classification) and CoolIT Systems™ CDU specs:
- * - Hydraulic & DP Loop: Bypass valve FCV61, filter differentials, loop restriction.
- * - Pumps & VFD Drive: Minimum pump speed (≥ 56% / 33.6 Hz), VFD terminal connections.
- * - Thermal Loop: RTD probes, secondary chiller heat exchange, thermal well paste.
- * - Pressure Transmitters: Impulse lines air entrainment, zero-offset calibration.
- * - Environmental: Test bay cleanroom HVAC humidity/temperature limits.
- * - Firmware/System: Controller software build revision verification.
- * 
- * @param category Subsystem domain category
- * @param paramName Optional channel / transducer tag name
- * @param softwareVersion Optional software build version string (e.g. from FTR metadata)
- * @returns RootCauseAction containing engineering domain and actionable shopfloor instructions
+ * aligned with real CDU closed-loop physics (SOP-CDU-CHX2000):
+ * - Fixed valves during test (no dynamic bypass modulation)
+ * - Low flow priority: (1) SOP Step 7 trapped air, (2) Moneo sensor scaling, (3) Motor ramp
+ * - High DP dwell hydraulic heating and suction PT21 ≥ 15 psi cavitation limits
  */
 export function getSubsystemRootCauseAction(
   category: SubsystemCategory,
@@ -149,7 +125,7 @@ export function getSubsystemRootCauseAction(
   softwareVersion?: string
 ): RootCauseAction {
   const versionStr = softwareVersion ? ` (${softwareVersion})` : '';
-  const param = (paramName || '').trim();
+  const param = (paramName || '').trim().toUpperCase();
 
   let domain = 'Telemetry Sensor';
   let action = 'Inspect channel wiring harness and calibrate transducer.';
@@ -159,12 +135,15 @@ export function getSubsystemRootCauseAction(
   switch (category) {
     case 'hydraulic': {
       domain = 'Hydraulic & DP Loop';
-      if (param.includes('FCV61')) {
-        probableCause = 'Modulating bypass valve FCV61 seat drift or analog command offset.';
-        reworkDirective = 'Inspect FCV61 mechanical seating, 0–10V command calibration, and verify travel feedback.';
+      if (param.includes('FT') || param.includes('FLOW')) {
+        probableCause = 'Trapped air lock from incomplete SOP Step 7 venting or IFM Moneo sensor parameter scaling.';
+        reworkDirective = '↑ Re-bleed via filter vent (SOP Step 7) until bubble-free. Inspect Moneo scaling if venting complete.';
+      } else if (param.includes('FCV61')) {
+        probableCause = 'Valves remain fixed during test. FCV61 seat drift or analog command offset.';
+        reworkDirective = 'Verify FCV61 closed mechanical seating and 0–10V command calibration.';
       } else {
-        probableCause = 'Secondary circuit flow restriction or loop pressure drop mismatch.';
-        reworkDirective = 'Verify loop differential pressure, inspect secondary filter restriction, and check bypass valve seating.';
+        probableCause = 'Valves fixed during test. Dynamic DP tracking lag from Pump 31 & 41 VFD ramp or impulse line air.';
+        reworkDirective = 'Verify ABB drive parameters P054/P055, bleed sensor impulse lines, and check filter DP.';
       }
       action = reworkDirective;
       break;
@@ -172,23 +151,28 @@ export function getSubsystemRootCauseAction(
     case 'pump': {
       domain = 'Pumps & VFD Drive';
       probableCause = param.includes('P31') || param.includes('P41')
-        ? `Circulation pump ${param} inverter command tracking or bus voltage anomaly.`
+        ? `Circulation pump ${param} VFD frequency ramp lag or parameter P054 clamp.`
         : 'Circulation pump VFD inverter speed deviation from setpoint profile.';
-      reworkDirective = `Inspect circulation pump VFD inverter speed register, terminal connections, and verify minimum pump frequency (≥ 56% / 33.6 Hz).`;
+      reworkDirective = 'Verify ABB Drive Composer parameters P054/P055 (P054 min 56% / 33.6 Hz) and terminal connections.';
       action = reworkDirective;
       break;
     }
     case 'temperature': {
       domain = 'Thermal Loop & Probes';
-      probableCause = 'RTD thermal sensor harness impedance or heat exchanger primary coolant delta.';
-      reworkDirective = 'Inspect temperature transmitter probe harness wiring, verify secondary chiller loop heat exchange, and check transducer zero/span.';
+      probableCause = 'Hydraulic heating from prolonged high DP dwell or primary facility chilled water deficit.';
+      reworkDirective = 'Verify facility cooling water supply temp/flow. Reduce DP dwell duration if testing limits exceeded.';
       action = reworkDirective;
       break;
     }
     case 'pressure': {
       domain = 'Pressure Transmitters';
-      probableCause = 'Pressure transducer impulse line air entrainment or diaphragm offset drift.';
-      reworkDirective = 'Inspect transducer impulse lines for entrained air, verify sensor zero-offset calibration, and check reservoir vacuum seal.';
+      if (param.includes('PT21') || param.includes('PT11')) {
+        probableCause = 'Suction pressure drawdown under high pump flow demand approaching cavitation limit.';
+        reworkDirective = 'Verify coolant reservoir level and make-up pressure. Ensure PT21 remains ≥ 15 psi to prevent cavitation.';
+      } else {
+        probableCause = 'Transducer impulse line air entrainment or diaphragm zero-offset drift.';
+        reworkDirective = 'Bleed impulse lines at PT manifold, check atmospheric zero calibration, and verify wiring.';
+      }
       action = reworkDirective;
       break;
     }
@@ -220,56 +204,66 @@ export function getSubsystemRootCauseAction(
 
 /**
  * Provides step-by-step factory floor corrective actions for an individual test channel.
- * 
- * @param category Subsystem domain category
- * @param paramName Optional channel / transducer tag name
- * @param stats Optional summary stats (peak, settling, unit)
- * @returns Array of step-by-step corrective actions
  */
 export function getChannelCorrectiveSteps(
   category: SubsystemCategory,
   paramName?: string,
-  stats?: { peak?: number | null; settling?: number | null; unit?: string }
+  _stats?: { peak?: number | null; settling?: number | null; unit?: string }
 ): string[] {
+  const p = (paramName || '').toUpperCase();
+
+  if (p.includes('FT') || p.includes('FLOW')) {
+    return [
+      '#1 Primary Action: Re-bleed air via primary filter air vent (SOP Step 7) until 100% fluid stream is observed without micro-bubbles.',
+      '#2 Secondary Action: If venting is complete, inspect IFM Moneo sensor media parameter and calibrate scaling down.',
+      '#3 Control Action: Valves are fixed. Verify ABB drive composer parameters P054/P055 for Pump 31 & 41 to ensure motors are not frequency-limited.'
+    ];
+  }
+
+  if (p.includes('DP')) {
+    return [
+      'Verify Pump 31 & 41 VFD speed command is ramping to meet stage DP setpoint (valves remain fixed).',
+      'Bleed air pockets at differential pressure sensor impulse lines.',
+      'Inspect secondary and primary filter differential pressures for debris loading.'
+    ];
+  }
+
+  if (p.includes('PT21') || p.includes('PT11')) {
+    return [
+      'Monitor PT21 suction pressure to ensure it remains above 15.0 psi to prevent pump cavitation.',
+      'Check coolant expansion reservoir level and top up glycol charge.',
+      'Clean pump suction strainer baskets to eliminate intake head losses.'
+    ];
+  }
+
   switch (category) {
-    case 'hydraulic':
-      return [
-        'Inspect loop differential pressure transmitters and check primary/secondary filter condition.',
-        'Verify bypass valve FCV61 calibration and check flow meter readings across high flow stages.',
-        'Check for hydraulic loop constriction or air entrainment in the CDU manifold.'
-      ];
-    case 'environmental': {
-      const peakStr = stats?.peak !== null && stats?.peak !== undefined 
-        ? `${stats.peak.toFixed(1)} ${stats.unit || ''}`.trim() 
-        : 'excursion level';
-      return [
-        `Test bay ambient reading logged at ${peakStr}.`,
-        'Verify test cell HVAC climate control and ambient dehumidifier operation. This is an environmental facility condition.'
-      ];
-    }
-    case 'system': {
-      const settlingStr = stats?.settling !== null && stats?.settling !== undefined 
-        ? String(stats.settling) 
-        : 'current value';
-      return [
-        `Configuration parameter mismatch: Unit logged ${settlingStr}.`,
-        'Verify controller firmware build revision matches the required customer production release.'
-      ];
-    }
     case 'pump':
       return [
-        'Inspect pump VFD parameters and speed command tracking across operating steps.',
-        'Check pump impeller rotation direction and verify differential pressure build.'
+        'Inspect ABB drive parameters P054/P055 in Drive Composer.',
+        'Verify minimum pump speed parameter is set to ≥ 56.00% (33.6 Hz per Invariant 7).',
+        'Verify PLC 0–10V analog speed reference tracking.'
       ];
     case 'temperature':
       return [
-        'Check RTD/temperature transmitter calibration and thermal well contact paste.',
-        'Inspect facility chilled water supply and secondary heat exchanger loop balance.'
+        'High DP dwell causes hydraulic heating. Verify facility primary cooling water supply temperature.',
+        'Reduce DP dwell duration if testing limits are exceeded.',
+        'Inspect RTD probe thermal well contact and sensor zero/span calibration.'
       ];
     case 'pressure':
       return [
-        'Inspect pressure transducer calibration and check wiring harness on terminal strip.',
-        'Perform zero-point check with loop depressurized.'
+        'Bleed pressure transducer impulse line to purge entrained air.',
+        'Perform zero-point check with loop depressurized.',
+        'Inspect terminal strip wiring and shield grounding.'
+      ];
+    case 'environmental':
+      return [
+        'Verify test cell HVAC dehumidifier operation and ambient climate control.',
+        'This is a facility ambient condition; ensure room humidity is within test bay envelope.'
+      ];
+    case 'system':
+      return [
+        'Verify controller firmware build revision matches the required customer production release.',
+        'Confirm parameter register mappings against FTR release notes.'
       ];
     default:
       return [

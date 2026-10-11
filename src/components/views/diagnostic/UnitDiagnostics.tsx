@@ -4,7 +4,9 @@ import { runCanonicalDiagnostics } from '../../../engine/diagnostics/diagnostics
 import { CanonicalFaultsSection } from './CanonicalFaultsSection';
 import { ChronologicalBreachTable } from './ChronologicalBreachTable';
 import { QaSignoffCard, QaItem } from './QaSignoffCard';
+import { PrescriptiveDirectivesCard } from './PrescriptiveDirectivesCard';
 import { getExcursionDeficitInfo } from '../common/diagnosticUtils';
+
 import {
   CheckCircle2,
   AlertTriangle,
@@ -110,7 +112,7 @@ export const UnitDiagnostics: React.FC<UnitDiagnosticsProps> = ({
             <span className="excursion-count-tag">
               {activeFailures.length === 0
                 ? 'Verification Complete: PASS'
-                : `${activeFailures.length} Tolerance Excursions`}
+                : `${activeFailures.length} Failed Checks`}
             </span>
             <span style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', color: 'var(--text-dim)' }}>
               ({passRate}% Compliance)
@@ -126,7 +128,7 @@ export const UnitDiagnostics: React.FC<UnitDiagnosticsProps> = ({
                 <div className="pass-banner-text">
                   <div className="pass-title">Unit Passed 100% of Evaluated Checks</div>
                   <div className="pass-desc">
-                    All {totalChannels} sensor channels maintained required 3-sigma tolerance margins across all {stages.length} operating stages. Zero statistical envelope excursions were recorded.
+                    All {totalChannels} sensor channels maintained required tolerance margins across all {stages.length} operating stages. Zero failures were recorded.
                   </div>
                 </div>
               </div>
@@ -153,7 +155,7 @@ export const UnitDiagnostics: React.FC<UnitDiagnosticsProps> = ({
                     Executive Root-Cause Diagnosis (Unit {metadata.serialNumber})
                   </div>
                   <div className="banner-desc">
-                    The unit achieved {passRate}% tolerance compliance ({passedCount} of {totalEvaluated} checks passed). A total of {failures.length} excursions were identified across {activeFailingSensors.length} test channel(s):
+                    The unit achieved {passRate}% tolerance compliance ({passedCount} of {totalEvaluated} checks passed). A total of {failures.length} failed checks were identified across {activeFailingSensors.length} test channel(s):
                   </div>
                   <ol className="overview-findings-list">
                     {activeFailingSensors.map(name => {
@@ -162,7 +164,7 @@ export const UnitDiagnostics: React.FC<UnitDiagnosticsProps> = ({
                       const deficitInfo = firstFail ? getExcursionDeficitInfo(firstFail) : null;
                       return (
                         <li key={name}>
-                          <strong>{name} ({s?.failCount} excursion{s?.failCount !== 1 ? 's' : ''}):</strong>{' '}
+                          <strong>{name} ({s?.failCount} failed check{s?.failCount !== 1 ? 's' : ''}):</strong>{' '}
                           {firstFail?.failureReason || `Measured value exceeded allowable 3σ tolerance envelope.`}
                           {deficitInfo && deficitInfo.deltaVal !== 0 && (
                             <span style={{ marginLeft: '6px', color: '#fca5a5', fontFamily: 'var(--font-mono)' }}>
@@ -201,8 +203,12 @@ export const UnitDiagnostics: React.FC<UnitDiagnosticsProps> = ({
                   })}
                 </div>
               </div>
+
+              {/* Prescriptive Directives & Directional Tuning Guidelines (SOP-CDU-CHX2000) */}
+              <PrescriptiveDirectivesCard isUnitOverview={true} />
             </div>
           )}
+
 
           {/* Canonical 20-Fault Diagnostics Registry Section */}
           <CanonicalFaultsSection

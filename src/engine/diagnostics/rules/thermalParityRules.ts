@@ -96,7 +96,7 @@ export function checkThermalParityRules(dataset: EagleEyeDataset): EvaluatedFaul
       worstDeviationStr: worst ? `+${worst.deviation} °C @ t=${worst.timeSec}s` : null,
       breaches,
       summary: isTriggered
-        ? `${def.shortName}: Exceeded 4-way loop parity threshold (${breaches.length} stage step excursions observed).`
+        ? `${def.shortName}: Exceeded 4-way loop parity threshold (${breaches.length} out-of-spec stage steps observed).`
         : 'Loop temperature consistent with 4-way cross-probe parity average.'
     });
   }

@@ -4,7 +4,9 @@ import { runCanonicalDiagnostics, getFaultsForSubsystem } from '../../../engine/
 import { CanonicalFaultsSection } from './CanonicalFaultsSection';
 import { ChronologicalBreachTable } from './ChronologicalBreachTable';
 import { QaSignoffCard, QaItem } from './QaSignoffCard';
+import { PrescriptiveDirectivesCard } from './PrescriptiveDirectivesCard';
 import { getExcursionDeficitInfo } from '../common/diagnosticUtils';
+
 import {
   CheckCircle2,
   AlertTriangle,
@@ -142,7 +144,7 @@ export const GroupDiagnostics: React.FC<GroupDiagnosticsProps> = ({
             <span className="excursion-count-tag">
               {activeFailures.length === 0
                 ? `${subName}: Verified PASS`
-                : `${activeFailures.length} ${subName} Excursions`}
+                : `${activeFailures.length} Failed Checks`}
             </span>
             <span style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', color: 'var(--text-dim)' }}>
               ({activePassRate}% Subsystem Compliance)
@@ -174,7 +176,7 @@ export const GroupDiagnostics: React.FC<GroupDiagnosticsProps> = ({
                     {subName} Diagnostic Ledger (Unit {metadata.serialNumber})
                   </div>
                   <div className="banner-desc">
-                    Subsystem achieved {activePassRate}% compliance ({activePassCount} of {activeTotalEvaluated} checks passed). Excursions detected on {activeFailingSensors.length} channel(s):
+                    Subsystem achieved {activePassRate}% compliance ({activePassCount} of {activeTotalEvaluated} checks passed). Failed checks detected on {activeFailingSensors.length} channel(s):
                   </div>
                   <ol className="overview-findings-list">
                     {activeFailingSensors.map(name => {
@@ -183,7 +185,7 @@ export const GroupDiagnostics: React.FC<GroupDiagnosticsProps> = ({
                       const deficitInfo = firstFail ? getExcursionDeficitInfo(firstFail) : null;
                       return (
                         <li key={name}>
-                          <strong>{name} ({s?.failCount} excursion{s?.failCount !== 1 ? 's' : ''}):</strong>{' '}
+                          <strong>{name} ({s?.failCount} failed check{s?.failCount !== 1 ? 's' : ''}):</strong>{' '}
                           {firstFail?.failureReason || `Measured reading breached statistical tolerance limits.`}
                           {deficitInfo && deficitInfo.deltaVal !== 0 && (
                             <span style={{ marginLeft: '6px', color: '#fca5a5', fontFamily: 'var(--font-mono)' }}>
@@ -222,8 +224,16 @@ export const GroupDiagnostics: React.FC<GroupDiagnosticsProps> = ({
                   })}
                 </div>
               </div>
+
+              {/* Prescriptive Directives & Directional Tuning Guidelines */}
+              <PrescriptiveDirectivesCard
+                parameter={activeFailingSensors[0] || (selectedSubsystem === 'hydraulic' ? 'FT01' : 'P31 Speed %')}
+                isUnitOverview={selectedSubsystem === 'hydraulic'}
+                title={`${subName} Prescriptive Directives & Directional Tuning`}
+              />
             </div>
           )}
+
 
           {/* Subsystem Canonical Faults */}
           <CanonicalFaultsSection
@@ -242,7 +252,7 @@ export const GroupDiagnostics: React.FC<GroupDiagnosticsProps> = ({
               searchQuery={excursionSearch}
               onSearchChange={setExcursionSearch}
               onSelectSensor={onSelectSensor}
-              title={`${subName} Out-of-Tolerance Excursions Ledger (${chronologicalExcursions.length} Breaches)`}
+              title={`${subName} Failure Log (${chronologicalExcursions.length} Breaches)`}
             />
           )}
 

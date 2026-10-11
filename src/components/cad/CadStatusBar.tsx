@@ -4,7 +4,8 @@ import {
   PanelLeft, 
   PanelRight, 
   PanelBottom, 
-  Maximize2 
+  Maximize2,
+  Layers 
 } from '../Icons';
 
 interface CadStatusBarProps {
@@ -14,6 +15,8 @@ interface CadStatusBarProps {
   selectedSensor?: string | null;
   showLeftDock: boolean;
   onToggleLeftDock: () => void;
+  showMiddleDock?: boolean;
+  onToggleMiddleDock?: () => void;
   showRightDock: boolean;
   onToggleRightDock: () => void;
   showBottomDock: boolean;
@@ -29,6 +32,8 @@ export const CadStatusBar: React.FC<CadStatusBarProps> = ({
   selectedSensor = null,
   showLeftDock,
   onToggleLeftDock,
+  showMiddleDock = true,
+  onToggleMiddleDock,
   showRightDock,
   onToggleRightDock,
   showBottomDock,
@@ -49,7 +54,7 @@ export const CadStatusBar: React.FC<CadStatusBarProps> = ({
 
   return (
     <footer className="cad-bottom-status-bar" role="status">
-      {/* Left Status & Simulation Dwell Timer */}
+      {/* Left Status & Dwell Timer */}
       <div className="cad-status-left">
         <div className="cad-status-indicator-block">
           <span className="cad-status-led-pulse"></span>
@@ -104,9 +109,10 @@ export const CadStatusBar: React.FC<CadStatusBarProps> = ({
         <div className="cad-status-item font-mono">
           <span className="cad-slabel">View:</span>
           <span className="cad-sval text-cyan font-bold">
-            {activeView === 'datasheet' && 'Data Sheet & Stages'}
-            {activeView === 'telemetry' && (selectedSensor ? `Telemetry Scope [${selectedSensor}]` : 'Telemetry Scope')}
-            {activeView === 'diagnostics' && 'Diagnostics & Punch-List'}
+            {activeView === 'datasheet' && 'Data Sheet & Verification Matrix'}
+            {activeView === 'telemetry' && (selectedSensor ? `Telemetry Scope [${selectedSensor}]` : 'Telemetry Oscilloscope')}
+            {activeView === 'dynamics' && 'System Dynamics & Coupling'}
+            {activeView === 'diagnostics' && 'Diagnostics & Directives'}
           </span>
         </div>
 
@@ -151,6 +157,16 @@ export const CadStatusBar: React.FC<CadStatusBarProps> = ({
           >
             <PanelLeft size={13} />
           </button>
+
+          {onToggleMiddleDock && (
+            <button 
+              className={`cad-sbtn ${showMiddleDock ? 'active' : ''}`}
+              onClick={onToggleMiddleDock}
+              title="Toggle Main Canvas Middle Window [Ctrl+4]"
+            >
+              <Layers size={13} />
+            </button>
+          )}
 
           <button 
             className={`cad-sbtn ${showRightDock ? 'active' : ''}`}

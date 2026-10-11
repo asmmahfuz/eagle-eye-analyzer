@@ -32,7 +32,7 @@ export const ChronologicalBreachTable: React.FC<ChronologicalBreachTableProps> =
         <div className="excursion-ledger-title">
           <ShieldAlert size={14} className="text-rose-400" />
           <span>
-            {title || `Chronological Out-of-Tolerance Excursions Ledger (${excursions.length} Breaches)`}
+            {title || `Chronological Failure Log (${excursions.length} Failed Checks)`}
           </span>
         </div>
 
@@ -131,14 +131,23 @@ export const ChronologicalBreachTable: React.FC<ChronologicalBreachTableProps> =
                     <td className="font-mono text-dim" style={{ fontSize: '10px', whiteSpace: 'nowrap' }}>
                       {spStr}
                     </td>
-                    <td style={{ maxWidth: '320px', fontSize: '11px', lineHeight: '1.3' }}>
-                      <div style={{ color: 'var(--text-main)', fontWeight: 600 }}>
-                        {f.failureReason || rootCause.probableCause}
+                    <td style={{ maxWidth: '340px', fontSize: '11px', lineHeight: '1.35' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '3px', flexWrap: 'wrap' }}>
+                        {deficit.isLower && (
+                          <span className="directional-indicator-increase">↑ To Increase</span>
+                        )}
+                        {deficit.isUpper && (
+                          <span className="directional-indicator-decrease">↓ To Decrease</span>
+                        )}
+                        <span style={{ color: 'var(--text-main)', fontWeight: 600 }}>
+                          {f.failureReason || rootCause.probableCause}
+                        </span>
                       </div>
-                      <div style={{ color: '#f59e0b', fontSize: '10px', marginTop: '2px' }}>
+                      <div style={{ color: '#f59e0b', fontSize: '10px' }}>
                         → {rootCause.reworkDirective}
                       </div>
                     </td>
+
                     <td>
                       <button
                         type="button"

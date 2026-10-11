@@ -4,11 +4,19 @@ import { CadEmptyWorkspace } from './CadEmptyWorkspace';
 import { UnitDataSheet, GroupDataSheet, TestDataSheet } from '../views/data';
 import { UnitTelemetry, GroupTelemetry, TestTelemetry } from '../views/telemetry';
 import { UnitDiagnostics, GroupDiagnostics, TestDiagnostics } from '../views/diagnostic';
+import { SystemDynamics } from '../views/dynamics';
 import {
   Layers,
   BarChart2,
   Activity,
-  ShieldAlert
+  Sliders,
+  ShieldAlert,
+  Minus,
+  Maximize2,
+  Minimize2,
+  X,
+  Crosshair,
+  RotateCcw
 } from '../Icons';
 
 interface CadTabbedCanvasProps {
@@ -28,7 +36,13 @@ interface CadTabbedCanvasProps {
   zoomLevel: number;
   onMouseMoveCoords?: (x: number, y: number) => void;
   onLoadSample?: (name?: string) => void;
-  onOpenLiveTest?: () => void;
+  isMinimized?: boolean;
+  onMinimize?: () => void;
+  isMaximized?: boolean;
+  onToggleMaximize?: () => void;
+  onRestore?: () => void;
+  onClose?: () => void;
+  style?: React.CSSProperties;
 }
 
 export const CadTabbedCanvas: React.FC<CadTabbedCanvasProps> = ({
@@ -47,7 +61,13 @@ export const CadTabbedCanvas: React.FC<CadTabbedCanvasProps> = ({
   zoomLevel,
   onMouseMoveCoords,
   onLoadSample,
-  onOpenLiveTest
+  isMinimized = false,
+  onMinimize,
+  isMaximized = false,
+  onToggleMaximize,
+  onRestore,
+  onClose,
+  style
 }) => {
   // Active 3-tier Scope Calculation (unit | group | test)
   const validSensor = useMemo(() => {
@@ -145,7 +165,7 @@ export const CadTabbedCanvas: React.FC<CadTabbedCanvasProps> = ({
   const telemetryBadge = useMemo(() => {
     if (scope === 'test' && validSensor) {
       const isFail = (dataset?.parameterStats[validSensor]?.failCount ?? 0) > 0;
-      return { text: validSensor, status: isFail ? 'fail' : 'pass' };
+      return { text: isFail ? 'FAIL' : 'PASS', status: isFail ? 'fail' : 'pass' };
     }
     if (scope === 'group') {
       return { text: `${activeSubsystemChannels.length} ch`, status: subFailCount > 0 ? 'fail' : 'pass' };
@@ -163,7 +183,15 @@ export const CadTabbedCanvas: React.FC<CadTabbedCanvasProps> = ({
     return 'Whole-Unit Operational Telemetry & System Excitation Multi-Curve';
   }, [scope, validSensor, subName]);
 
-  // Scope-aware Tab 3 (Diagnostics & Rework) Badge & Title
+  // Scope-aware Tab 3 (System Dynamics) Badge & Title
+  const dynamicsBadge = useMemo(() => {
+    const stageCount = dataset?.stages.length ?? 0;
+    return { text: `${stageCount} stg`, status: 'neutral' };
+  }, [dataset?.stages.length]);
+
+  const dynamicsTitle = 'System Dynamics & Stage Coupling — Closed-Loop Hydraulic & Actuator Cockpit';
+
+  // Scope-aware Tab 4 (Diagnostics & Rework) Badge & Title
   const diagnosticsBadge = useMemo(() => {
     const count = displayFailures.length;
     return { text: `${count}`, status: count > 0 ? 'fail' : 'pass' };
@@ -171,19 +199,63 @@ export const CadTabbedCanvas: React.FC<CadTabbedCanvasProps> = ({
 
   const diagnosticsTitle = useMemo(() => {
     if (scope === 'test' && validSensor) {
-      return `${validSensor} Diagnostics — Breach Ledger & Targeted Corrective Directive`;
+      return `${validSensor} Diagnostics & Rework Directives — Breach Ledger`;
     }
     if (scope === 'group') {
-      return `${subName} Diagnostics — Subsystem Excursion Ledger & Rework Action`;
+      return `${subName} Diagnostics & Rework Directives — Subsystem Deficit Log`;
     }
-    return 'Whole-Unit Diagnostics — Root Cause Verdict & Shopfloor Rework Punch-List';
+    return 'Diagnostics & Rework Directives — Root Cause Verdict & Shopfloor Directives';
   }, [scope, validSensor, subName]);
+
+  // Minimized Collapsed State
+  if (isMinimized) {
+    return (
+      <div 
+        className="cad-dock-minimized cad-dock-minimized-middle"
+        title="Main Document Canvas (Minimized) • Click to restore"
+        onClick={onRestore || onMinimize}
+        style={style}
+      >
+        <div className="cad-dock-min-horizontal-left">
+          <Layers size={13} className="cad-dock-icon" />
+          <span className="cad-dock-min-title">MAIN DOCUMENT CANVAS [MINIMIZED]</span>
+          <span className="cad-scope-pill unit">
+            {activeView === 'datasheet' && 'Data Sheet'}
+            {activeView === 'telemetry' && 'Telemetry'}
+            {activeView === 'dynamics' && 'Dynamics'}
+            {activeView === 'diagnostics' && 'Diagnostics'}
+          </span>
+        </div>
+        <div className="cad-dock-min-actions" onClick={e => e.stopPropagation()}>
+          <button
+            type="button"
+            className="cad-dock-btn"
+            title="Restore Main Canvas"
+            onClick={onRestore || onMinimize}
+          >
+            <Maximize2 size={12} />
+          </button>
+          {onClose && (
+            <button
+              type="button"
+              className="cad-dock-btn cad-dock-btn-close"
+              title="Close Main Canvas"
+              onClick={onClose}
+            >
+              <X size={12} />
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   // Dormant state: No dataset loaded
   if (!dataset) {
     return (
       <div
         className="cad-tabbed-canvas"
+        style={style}
         onMouseMove={handleCanvasMouseMove}
       >
         <div className="cad-canvas-tabbar">
@@ -192,6 +264,39 @@ export const CadTabbedCanvas: React.FC<CadTabbedCanvasProps> = ({
               <Layers size={13} />
               <span>Workspace Ready</span>
             </div>
+          </div>
+          <div className="cad-canvas-window-actions">
+            <span className="cad-dock-pill-docked">{isMaximized ? 'Full Screen' : 'Main View'}</span>
+            {onMinimize && (
+              <button
+                type="button"
+                className="cad-dock-btn"
+                title="Minimize Main Canvas"
+                onClick={onMinimize}
+              >
+                <Minus size={12} />
+              </button>
+            )}
+            {onToggleMaximize && (
+              <button
+                type="button"
+                className={`cad-dock-btn ${isMaximized ? 'active' : ''}`}
+                title={isMaximized ? "Restore Normal Size (Esc)" : "Full App Screen (Main Canvas)"}
+                onClick={onToggleMaximize}
+              >
+                {isMaximized ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+              </button>
+            )}
+            {onClose && (
+              <button
+                type="button"
+                className="cad-dock-btn cad-dock-btn-close"
+                title="Close Main Canvas"
+                onClick={onClose}
+              >
+                <X size={12} />
+              </button>
+            )}
           </div>
         </div>
 
@@ -206,7 +311,6 @@ export const CadTabbedCanvas: React.FC<CadTabbedCanvasProps> = ({
             uploadError={uploadError}
             onClearError={onClearError}
             onLoadSample={onLoadSample}
-            onOpenLiveTest={onOpenLiveTest}
           />
         </div>
       </div>
@@ -216,45 +320,59 @@ export const CadTabbedCanvas: React.FC<CadTabbedCanvasProps> = ({
   return (
     <div
       className="cad-tabbed-canvas"
+      style={style}
       onMouseMove={handleCanvasMouseMove}
     >
-      {/* Streamlined 3-Tab Header Bar with Dynamic Scope Routing */}
+      {/* Streamlined 4-Tab Header Bar with Dynamic Scope Routing */}
       <div className="cad-canvas-tabbar">
         <div className="cad-canvas-tabs-list">
-          {/* Tab 1: Data Sheet & Operating Stages */}
+          {/* Tab 1: Data Sheet */}
           <button
             className={`cad-ctab ${activeView === 'datasheet' ? 'active' : ''}`}
             onClick={() => onSelectView('datasheet')}
             title={dataSheetTitle}
           >
             <BarChart2 size={13} />
-            <span>Data Sheet & Operating Stages</span>
+            <span>Data Sheet</span>
             <span className={`cad-tab-badge-count ${dataSheetBadge.status}`}>
               {dataSheetBadge.text}
             </span>
           </button>
 
-          {/* Tab 2: Telemetry Scope */}
+          {/* Tab 2: Telemetry */}
           <button
             className={`cad-ctab ${activeView === 'telemetry' ? 'active' : ''}`}
             onClick={() => onSelectView('telemetry')}
             title={telemetryTitle}
           >
             <Activity size={13} />
-            <span>Telemetry Scope</span>
+            <span>Telemetry</span>
             <span className={`cad-tab-badge-count ${telemetryBadge.status}`}>
               {telemetryBadge.text}
             </span>
           </button>
 
-          {/* Tab 3: Diagnostics & Rework Punch-List */}
+          {/* Tab 3: System Dynamics */}
+          <button
+            className={`cad-ctab ${activeView === 'dynamics' ? 'active' : ''}`}
+            onClick={() => onSelectView('dynamics')}
+            title={dynamicsTitle}
+          >
+            <Sliders size={13} />
+            <span>Dynamics</span>
+            <span className={`cad-tab-badge-count ${dynamicsBadge.status}`}>
+              {dynamicsBadge.text}
+            </span>
+          </button>
+
+          {/* Tab 4: Diagnostics */}
           <button
             className={`cad-ctab ${activeView === 'diagnostics' ? 'active' : ''}`}
             onClick={() => onSelectView('diagnostics')}
             title={diagnosticsTitle}
           >
             <ShieldAlert size={13} />
-            <span>Diagnostics & Rework Punch-List</span>
+            <span>Diagnostics</span>
             <span className={`cad-tab-badge-count ${diagnosticsBadge.status}`}>
               {diagnosticsBadge.text}
             </span>
@@ -264,10 +382,10 @@ export const CadTabbedCanvas: React.FC<CadTabbedCanvasProps> = ({
         {/* Canvas Right Tools: Real-time status tags & Scope tier badge */}
         <div className="cad-canvas-top-tools">
           {/* Real-time Scope Tier Badge */}
-          <div className="cad-canvas-scope-indicator" title={`Active Scope Tier: ${scope.toUpperCase()}`}>
-            <span className="cad-scope-tier-label">SCOPE:</span>
+          <div className="cad-canvas-scope-indicator" title={`Active Scope Tier: ${scope.toUpperCase()} ${scope !== 'unit' ? '• Click ↺ to return to Whole Unit' : ''}`}>
+            <Crosshair size={11} className="cad-scope-icon" />
             <span className={`cad-scope-pill ${scope}`}>
-              {scope === 'unit' && 'WHOLE UNIT'}
+              {scope === 'unit' && 'UNIT'}
               {scope === 'group' && subName.toUpperCase()}
               {scope === 'test' && validSensor}
             </span>
@@ -278,59 +396,124 @@ export const CadTabbedCanvas: React.FC<CadTabbedCanvasProps> = ({
                 onClick={handleResetToUnit}
                 title="Return to Whole Unit Scope"
               >
-                ↺ Unit
+                <RotateCcw size={10} />
               </button>
             )}
           </div>
 
           {/* Real-time Status Tag based on active view and scope */}
           {activeView === 'datasheet' && (
-            <span className={`cad-sheet-status-tag ${
-              scope === 'test' && validSensor
-                ? ((dataset.parameterStats[validSensor]?.failCount ?? 0) > 0 ? 'fail' : 'pass')
-                : scope === 'group'
-                ? (subFailCount > 0 ? 'fail' : 'pass')
-                : ((dataset.failedCount ?? 0) > 0 ? 'fail' : 'pass')
-            }`}>
+            <span
+              className={`cad-sheet-status-tag ${
+                scope === 'test' && validSensor
+                  ? ((dataset.parameterStats[validSensor]?.failCount ?? 0) > 0 ? 'fail' : 'pass')
+                  : scope === 'group'
+                  ? (subFailCount > 0 ? 'fail' : 'pass')
+                  : ((dataset.failedCount ?? 0) > 0 ? 'fail' : 'pass')
+              }`}
+              title={
+                scope === 'test' && validSensor
+                  ? `${validSensor}: ${(dataset.parameterStats[validSensor]?.failCount ?? 0) > 0 ? `${dataset.parameterStats[validSensor]?.failCount} Violations` : 'PASS (100% in tolerance)'}`
+                  : scope === 'group'
+                  ? `${subName.toUpperCase()}: ${subFailCount > 0 ? `FAIL (${subFailCount} Violations)` : 'PASS (100% in tolerance)'}`
+                  : ((dataset.failedCount ?? 0) > 0
+                      ? `OVERALL: FAIL (${dataset.failedCount} Violations)`
+                      : 'OVERALL: PASS (100% in tolerance)')
+              }
+            >
               {scope === 'test' && validSensor
-                ? `${validSensor}: ${(dataset.parameterStats[validSensor]?.failCount ?? 0) > 0 ? `${dataset.parameterStats[validSensor]?.failCount} Violations` : 'PASS (100% in tolerance)'}`
+                ? ((dataset.parameterStats[validSensor]?.failCount ?? 0) > 0 ? `FAIL (${dataset.parameterStats[validSensor]?.failCount})` : 'PASS')
                 : scope === 'group'
-                ? `${subName.toUpperCase()}: ${subFailCount > 0 ? `FAIL (${subFailCount} Violations)` : 'PASS (100% in tolerance)'}`
-                : ((dataset.failedCount ?? 0) > 0
-                    ? `OVERALL: FAIL (${dataset.failedCount} Violations)`
-                    : 'OVERALL: PASS (100% in tolerance)')}
+                ? (subFailCount > 0 ? `FAIL (${subFailCount})` : 'PASS')
+                : ((dataset.failedCount ?? 0) > 0 ? `FAIL (${dataset.failedCount})` : 'PASS (100%)')}
             </span>
           )}
           {activeView === 'telemetry' && (
-            <span className={`cad-sheet-status-tag ${
-              scope === 'test' && validSensor
-                ? ((dataset.parameterStats[validSensor]?.failCount ?? 0) > 0 ? 'fail' : 'pass')
-                : scope === 'group'
-                ? (subFailCount > 0 ? 'fail' : 'pass')
-                : ((dataset.failedCount ?? 0) > 0 ? 'fail' : 'pass')
-            }`}>
+            <span
+              className={`cad-sheet-status-tag ${
+                scope === 'test' && validSensor
+                  ? ((dataset.parameterStats[validSensor]?.failCount ?? 0) > 0 ? 'fail' : 'pass')
+                  : scope === 'group'
+                  ? (subFailCount > 0 ? 'fail' : 'pass')
+                  : ((dataset.failedCount ?? 0) > 0 ? 'fail' : 'pass')
+              }`}
+              title={
+                scope === 'test' && validSensor
+                  ? ((dataset.parameterStats[validSensor]?.failCount ?? 0) > 0 ? `FAILED (${dataset.parameterStats[validSensor]?.failCount} pts)` : 'PASS (In Tolerance)')
+                  : scope === 'group'
+                  ? `${subName.toUpperCase()}: ${subFailCount > 0 ? `FAIL (${subFailCount} Violations)` : 'PASS (100% in tolerance)'}`
+                  : ((dataset.failedCount ?? 0) > 0
+                      ? `OVERALL: FAIL (${dataset.failedCount} Violations)`
+                      : 'OVERALL: PASS (100% in tolerance)')
+              }
+            >
               {scope === 'test' && validSensor
                 ? ((dataset.parameterStats[validSensor]?.failCount ?? 0) > 0
-                    ? `3σ EXCURSION (${dataset.parameterStats[validSensor]?.failCount} pts)`
-                    : '3σ PASS (Healthy Buffer)')
+                    ? `FAIL (${dataset.parameterStats[validSensor]?.failCount})`
+                    : 'PASS')
                 : scope === 'group'
-                ? `${subName.toUpperCase()}: ${subFailCount > 0 ? `FAIL (${subFailCount} Violations)` : 'PASS (100% in tolerance)'}`
+                ? (subFailCount > 0 ? `FAIL (${subFailCount})` : 'PASS')
                 : ((dataset.failedCount ?? 0) > 0
-                    ? `OVERALL: FAIL (${dataset.failedCount} Violations)`
-                    : 'OVERALL: PASS (100% in tolerance)')}
+                    ? `FAIL (${dataset.failedCount})`
+                    : 'PASS')}
+            </span>
+          )}
+          {activeView === 'dynamics' && (
+            <span className="cad-sheet-status-tag pass" title="Closed-Loop Dynamics (10 Stages)">
+              DYNAMICS ({dataset.stages.length} STG)
             </span>
           )}
           {activeView === 'diagnostics' && (
-            <span className={`cad-sheet-status-tag ${displayFailures.length > 0 ? 'fail' : 'pass'}`}>
-              {scope === 'test' && validSensor
-                ? (displayFailures.length > 0 ? `${validSensor}: ${displayFailures.length} Deficits` : `${validSensor}: 100% Quality Acceptance`)
-                : scope === 'group'
-                ? (displayFailures.length > 0 ? `${displayFailures.length} ${subName} Deficits` : `${subName}: 100% Quality Acceptance`)
-                : ((dataset.failedCount ?? 0) > 0
-                    ? `${dataset.failedCount} Excursion Deficits`
-                    : '100% Quality Acceptance')}
+            <span
+              className={`cad-sheet-status-tag ${displayFailures.length > 0 ? 'fail' : 'pass'}`}
+              title={
+                scope === 'test' && validSensor
+                  ? (displayFailures.length > 0 ? `${validSensor}: ${displayFailures.length} Deficits` : `${validSensor}: 100% Quality Acceptance`)
+                  : scope === 'group'
+                  ? (displayFailures.length > 0 ? `${displayFailures.length} ${subName} Deficits` : `${subName}: 100% Quality Acceptance`)
+                  : ((dataset.failedCount ?? 0) > 0
+                      ? `${dataset.failedCount} Failed Points`
+                      : '100% Quality Acceptance')
+              }
+            >
+              {displayFailures.length > 0 ? `FAIL (${displayFailures.length})` : '100% PASS'}
             </span>
           )}
+
+          {/* Window Control Buttons */}
+          <div className="cad-canvas-window-actions">
+            <span className="cad-dock-pill-docked">{isMaximized ? 'Full Screen' : 'Main View'}</span>
+            {onMinimize && (
+              <button
+                type="button"
+                className="cad-dock-btn"
+                title="Minimize Main Canvas"
+                onClick={onMinimize}
+              >
+                <Minus size={12} />
+              </button>
+            )}
+            {onToggleMaximize && (
+              <button
+                type="button"
+                className={`cad-dock-btn ${isMaximized ? 'active' : ''}`}
+                title={isMaximized ? "Restore Normal Size (Esc)" : "Full App Screen (Main Canvas)"}
+                onClick={onToggleMaximize}
+              >
+                {isMaximized ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+              </button>
+            )}
+            {onClose && (
+              <button
+                type="button"
+                className="cad-dock-btn cad-dock-btn-close"
+                title="Close Main Canvas"
+                onClick={onClose}
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -395,7 +578,18 @@ export const CadTabbedCanvas: React.FC<CadTabbedCanvasProps> = ({
           </div>
         )}
 
-        {/* Route 3: Diagnostics & Rework Punch-List (Modular 3-Tier Scope Dispatcher) */}
+        {/* Route 3: System Dynamics & Stage Coupling */}
+        {activeView === 'dynamics' && (
+          <div className="cad-overview-wrapper">
+            <SystemDynamics
+              dataset={dataset}
+              selectedSensor={selectedSensor}
+              onSelectSensor={onSelectSensor}
+            />
+          </div>
+        )}
+
+        {/* Route 4: Diagnostics & Rework Directives (Modular 3-Tier Scope Dispatcher) */}
         {activeView === 'diagnostics' && (
           <div className="cad-overview-wrapper">
             {scope === 'test' && validSensor ? (

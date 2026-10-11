@@ -116,6 +116,63 @@ export function analyzeDataset(raw: RawParsedInput): EagleEyeDataset {
     });
   });
 
+  // 4. Modbus Sentinel Sanitizer & Baseline Limits Healer for Differential Pressure (DP) & Transducers
+  // In factory log baselines, uninitialized Modbus transmitters (reading 6553.5 / 0xFFFF during initial 15s dwell)
+  // corrupt statistical limits (producing mean-3Sigma around -2000 and mean+3Sigma around +2200, and max 6553.5).
+  // For DP channels, physical differential pressure is strictly bounded: DP >= 0 and normal maximum DP < 50 psi.
+  // We sanitize corrupt sentinel limits by healing from the nearest valid adjacent dwell baseline.
+  const dpCols = headers.filter(h => h.toUpperCase().includes('DP') || (unitMap[h] === 'psi' && getCategory(h) === 'hydraulic'));
+  dpCols.forEach(col => {
+    (['mean-3Sigma', 'mean+3Sigma', 'min', 'max'] as const).forEach(k => {
+      const rows = limits[k];
+      if (!rows || rows.length === 0) return;
+
+      for (let r = 0; r < rows.length; r++) {
+        const v = rows[r]?.[col];
+        if (typeof v === 'number') {
+          const isCorrupt = isModbusSentinel(v) || v < 0 || v > 200;
+          if (isCorrupt) {
+            let replacement: number | null = null;
+            // Scan subsequent rows for a valid baseline
+            for (let nextR = r + 1; nextR < rows.length; nextR++) {
+              const cand = rows[nextR]?.[col];
+              if (typeof cand === 'number' && !isModbusSentinel(cand) && cand >= 0 && cand <= 200) {
+                replacement = cand;
+                break;
+              }
+            }
+            // If not found, scan previous rows
+            if (replacement === null) {
+              for (let prevR = r - 1; prevR >= 0; prevR--) {
+                const cand = rows[prevR]?.[col];
+                if (typeof cand === 'number' && !isModbusSentinel(cand) && cand >= 0 && cand <= 200) {
+                  replacement = cand;
+                  break;
+                }
+              }
+            }
+            if (replacement !== null) {
+              rows[r][col] = replacement;
+            } else {
+              rows[r][col] = Math.max(0, Math.min(50, v));
+            }
+          }
+        }
+      }
+    });
+  });
+
+  // Also clean pure 6553.5 Modbus sentinels across limits['max'] for all channels
+  limits['max']?.forEach(row => {
+    headers.forEach(h => {
+      const v = row[h];
+      if (typeof v === 'number' && isModbusSentinel(v)) {
+        const meanHigh = limits['mean+3Sigma']?.find(r => typeof r[h] === 'number' && !isModbusSentinel(r[h]))?.[h];
+        row[h] = typeof meanHigh === 'number' ? Math.round(meanHigh * 1.1 * 100) / 100 : null;
+      }
+    });
+  });
+
   // Evaluated range: All 30 time steps (indices 0 to 29 in measurements, matching indices 0 to 27 in limits)
   for (let mIdx = 0; mIdx < measurements.length; mIdx++) {
     const limitIdx = mIdx >= 2 ? Math.min(limits['mean-3Sigma'].length - 1, mIdx - 2) : 0;
@@ -240,7 +297,7 @@ export function analyzeDataset(raw: RawParsedInput): EagleEyeDataset {
           failureReason = `PLC Firmware Uninitialized: Logged program version is invalid or zero (${val}).`;
         } else if (col.toLowerCase().includes('humidity')) {
           const limitTxt = high !== null && high !== undefined ? `${high.toFixed(1)}%` : 'specification upper limit';
-          const deficitTxt = typeof val === 'number' && typeof high === 'number' ? ` (Excursion: +${(val - high).toFixed(1)}%)` : '';
+          const deficitTxt = typeof val === 'number' && typeof high === 'number' ? ` (Failed: +${(val - high).toFixed(1)}%)` : '';
           failureReason = `Ambient Humidity (${val}%) exceeded test bay cleanroom threshold (${limitTxt})${deficitTxt}${zStr}.`;
         } else if (deltaLower !== null && deltaLower < 0) {
           failureReason = `Reading ${typeof val === 'number' ? val.toFixed(2) : val} ${unit} is ${Math.abs(deltaLower).toFixed(2)} ${unit} BELOW the required lower margin (${low !== null ? low.toFixed(2) : ''} ${unit}). Deficit: ${deltaLower.toFixed(2)} ${unit}${zStr}.`;

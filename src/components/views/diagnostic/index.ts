@@ -18,3 +18,7 @@ export type { ChronologicalBreachTableProps } from './ChronologicalBreachTable';
 
 export { QaSignoffCard } from './QaSignoffCard';
 export type { QaSignoffCardProps } from './QaSignoffCard';
+
+export { PrescriptiveDirectivesCard } from './PrescriptiveDirectivesCard';
+export type { PrescriptiveDirectivesCardProps } from './PrescriptiveDirectivesCard';
+

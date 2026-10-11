@@ -12,7 +12,10 @@ import { CadParameterInspector } from './components/cad/CadParameterInspector';
 import { CadTerminalPanel } from './components/cad/CadTerminalPanel';
 import { CadTabbedCanvas } from './components/cad/CadTabbedCanvas';
 import { CadStatusBar } from './components/cad/CadStatusBar';
-import { CadShortcutsModal, CadModbusModal, CadAboutModal, CadLiveTestModal } from './components/cad/CadModals';
+import { CadShortcutsModal, CadAboutModal } from './components/cad/CadModals';
+import { TerminalTab } from './components/cad/CadTerminalPanel';
+import { CadSplitter } from './components/cad/CadSplitter';
+import { Minimize2 } from './components/Icons';
 
 export const App: React.FC = () => {
   // Clean workstation state: Starts with 0 preloaded data awaiting user ingestion
@@ -27,10 +30,213 @@ export const App: React.FC = () => {
   const [activeModelId, setActiveModelId] = useState<CduModelId>('CHx2000');
   const [detectedModelId, setDetectedModelId] = useState<CduModelId>('CHx2000');
 
-  // Multi-window Dock Visibility States ("might not be needed all the time")
-  const [showLeftDock, setShowLeftDock] = useState<boolean>(true);
-  const [showRightDock, setShowRightDock] = useState<boolean>(true);
-  const [showBottomDock, setShowBottomDock] = useState<boolean>(true);
+  // Multi-window Dock Visibility States
+  const [showLeftDock, setShowLeftDock] = useState<boolean>(() => {
+    return localStorage.getItem('eagle-eye-show-left-dock') !== 'false';
+  });
+  const [showMiddleDock, setShowMiddleDock] = useState<boolean>(() => {
+    return localStorage.getItem('eagle-eye-show-middle-dock') !== 'false';
+  });
+  const [showRightDock, setShowRightDock] = useState<boolean>(() => {
+    return localStorage.getItem('eagle-eye-show-right-dock') !== 'false';
+  });
+  const [showBottomDock, setShowBottomDock] = useState<boolean>(() => {
+    return localStorage.getItem('eagle-eye-show-bottom-dock') !== 'false';
+  });
+
+  // Dock Window Sizing States (draggable splitters)
+  const [leftWidth, setLeftWidth] = useState<number>(() => {
+    const saved = localStorage.getItem('eagle-eye-dock-left-width');
+    const parsed = saved ? parseInt(saved, 10) : 280;
+    return isNaN(parsed) || parsed < 180 || parsed > 800 ? 280 : parsed;
+  });
+  const [rightWidth, setRightWidth] = useState<number>(() => {
+    const saved = localStorage.getItem('eagle-eye-dock-right-width');
+    const parsed = saved ? parseInt(saved, 10) : 310;
+    return isNaN(parsed) || parsed < 200 || parsed > 800 ? 310 : parsed;
+  });
+  const [bottomHeight, setBottomHeight] = useState<number>(() => {
+    const saved = localStorage.getItem('eagle-eye-dock-bottom-height');
+    const parsed = saved ? parseInt(saved, 10) : 240;
+    return isNaN(parsed) || parsed < 100 || parsed > 800 ? 240 : parsed;
+  });
+
+  // Minimized Windows States
+  const [minimizedWindows, setMinimizedWindows] = useState<{
+    left: boolean;
+    middle: boolean;
+    right: boolean;
+    bottom: boolean;
+  }>({
+    left: false,
+    middle: false,
+    right: false,
+    bottom: false
+  });
+
+  // Maximized / Full App Screen State ('none' | 'left' | 'middle' | 'right' | 'bottom')
+  const [maximizedWindow, setMaximizedWindow] = useState<'none' | 'left' | 'middle' | 'right' | 'bottom'>('none');
+
+  const workspaceRef = useRef<HTMLElement>(null);
+
+  const handleToggleLeftDock = () => {
+    setShowLeftDock(prev => {
+      const next = !prev;
+      localStorage.setItem('eagle-eye-show-left-dock', String(next));
+      return next;
+    });
+  };
+  const handleToggleMiddleDock = () => {
+    setShowMiddleDock(prev => {
+      const next = !prev;
+      localStorage.setItem('eagle-eye-show-middle-dock', String(next));
+      return next;
+    });
+  };
+  const handleToggleRightDock = () => {
+    setShowRightDock(prev => {
+      const next = !prev;
+      localStorage.setItem('eagle-eye-show-right-dock', String(next));
+      return next;
+    });
+  };
+  const handleToggleBottomDock = () => {
+    setShowBottomDock(prev => {
+      const next = !prev;
+      localStorage.setItem('eagle-eye-show-bottom-dock', String(next));
+      return next;
+    });
+  };
+
+  const handleToggleMinimize = (win: 'left' | 'middle' | 'right' | 'bottom') => {
+    if (maximizedWindow === win) {
+      setMaximizedWindow('none');
+    }
+    setMinimizedWindows(prev => ({
+      ...prev,
+      [win]: !prev[win]
+    }));
+  };
+
+  const handleToggleMaximize = (win: 'left' | 'middle' | 'right' | 'bottom') => {
+    setMaximizedWindow(prev => {
+      if (prev === win) return 'none';
+      setMinimizedWindows(m => ({ ...m, [win]: false }));
+      return win;
+    });
+  };
+
+  // Cached workspace rect and active values for 60fps/120fps butter-smooth resizing
+  const cachedRectRef = useRef<DOMRect | null>(null);
+  const currentLeftWidthRef = useRef<number>(leftWidth);
+  const currentRightWidthRef = useRef<number>(rightWidth);
+  const currentBottomHeightRef = useRef<number>(bottomHeight);
+  const rafIdRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    currentLeftWidthRef.current = leftWidth;
+    if (workspaceRef.current) {
+      workspaceRef.current.style.setProperty('--left-width', `${leftWidth}px`);
+    }
+  }, [leftWidth]);
+
+  useEffect(() => {
+    currentRightWidthRef.current = rightWidth;
+    if (workspaceRef.current) {
+      workspaceRef.current.style.setProperty('--right-width', `${rightWidth}px`);
+    }
+  }, [rightWidth]);
+
+  useEffect(() => {
+    currentBottomHeightRef.current = bottomHeight;
+    if (workspaceRef.current) {
+      workspaceRef.current.style.setProperty('--bottom-height', `${bottomHeight}px`);
+    }
+  }, [bottomHeight]);
+
+  const handleDragStart = () => {
+    if (workspaceRef.current) {
+      cachedRectRef.current = workspaceRef.current.getBoundingClientRect();
+    }
+  };
+
+  const handleResizeLeftMove = (clientX: number) => {
+    if (!workspaceRef.current) return;
+    const rect = cachedRectRef.current || workspaceRef.current.getBoundingClientRect();
+    cachedRectRef.current = rect;
+    const newWidth = Math.round(clientX - rect.left);
+    const minWidth = 180;
+    const maxWidth = Math.max(minWidth, Math.min(700, rect.width - currentRightWidthRef.current - 250));
+    const clamped = Math.max(minWidth, Math.min(maxWidth, newWidth));
+    currentLeftWidthRef.current = clamped;
+
+    if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
+    rafIdRef.current = requestAnimationFrame(() => {
+      if (workspaceRef.current) {
+        workspaceRef.current.style.setProperty('--left-width', `${clamped}px`);
+      }
+    });
+  };
+
+  const handleResizeLeftEnd = () => {
+    if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
+    const finalVal = currentLeftWidthRef.current;
+    setLeftWidth(finalVal);
+    localStorage.setItem('eagle-eye-dock-left-width', String(finalVal));
+    cachedRectRef.current = null;
+  };
+
+  const handleResizeRightMove = (clientX: number) => {
+    if (!workspaceRef.current) return;
+    const rect = cachedRectRef.current || workspaceRef.current.getBoundingClientRect();
+    cachedRectRef.current = rect;
+    const newWidth = Math.round(rect.right - clientX);
+    const minWidth = 200;
+    const maxWidth = Math.max(minWidth, Math.min(700, rect.width - currentLeftWidthRef.current - 250));
+    const clamped = Math.max(minWidth, Math.min(maxWidth, newWidth));
+    currentRightWidthRef.current = clamped;
+
+    if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
+    rafIdRef.current = requestAnimationFrame(() => {
+      if (workspaceRef.current) {
+        workspaceRef.current.style.setProperty('--right-width', `${clamped}px`);
+      }
+    });
+  };
+
+  const handleResizeRightEnd = () => {
+    if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
+    const finalVal = currentRightWidthRef.current;
+    setRightWidth(finalVal);
+    localStorage.setItem('eagle-eye-dock-right-width', String(finalVal));
+    cachedRectRef.current = null;
+  };
+
+  const handleResizeBottomMove = (_clientX: number, clientY: number) => {
+    if (!workspaceRef.current) return;
+    const rect = cachedRectRef.current || workspaceRef.current.getBoundingClientRect();
+    cachedRectRef.current = rect;
+    const newHeight = Math.round(rect.bottom - clientY);
+    const minHeight = 100;
+    const maxHeight = Math.max(minHeight, Math.min(700, rect.height - 120));
+    const clamped = Math.max(minHeight, Math.min(maxHeight, newHeight));
+    currentBottomHeightRef.current = clamped;
+
+    if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
+    rafIdRef.current = requestAnimationFrame(() => {
+      if (workspaceRef.current) {
+        workspaceRef.current.style.setProperty('--bottom-height', `${clamped}px`);
+      }
+    });
+  };
+
+  const handleResizeBottomEnd = () => {
+    if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
+    const finalVal = currentBottomHeightRef.current;
+    setBottomHeight(finalVal);
+    localStorage.setItem('eagle-eye-dock-bottom-height', String(finalVal));
+    cachedRectRef.current = null;
+  };
 
   // Zoom & Crosshair Coordinates
   const [zoomLevel, setZoomLevel] = useState<number>(1.0);
@@ -38,9 +244,28 @@ export const App: React.FC = () => {
 
   // Dialog Modals
   const [showShortcutsModal, setShowShortcutsModal] = useState<boolean>(false);
-  const [showModbusModal, setShowModbusModal] = useState<boolean>(false);
   const [showAboutModal, setShowAboutModal] = useState<boolean>(false);
-  const [showLiveTestModal, setShowLiveTestModal] = useState<boolean>(false);
+
+  // Terminal Active Tab State ('build' | 'registers' | 'stream' | 'console' | 'raw')
+  const [terminalTab, setTerminalTab] = useState<TerminalTab>('build');
+
+  const handleOpenTerminalModbus = () => {
+    setShowBottomDock(true);
+    setTerminalTab('registers');
+  };
+
+  // Modbus Address Overlays (Hidden from front by default; toggled via Hidden Menu or View menu)
+  const [showModbusOverlays, setShowModbusOverlays] = useState<boolean>(() => {
+    return localStorage.getItem('eagle-eye-show-modbus') === 'true';
+  });
+
+  const handleToggleModbusOverlays = (val?: boolean) => {
+    setShowModbusOverlays(prev => {
+      const next = val !== undefined ? val : !prev;
+      localStorage.setItem('eagle-eye-show-modbus', String(next));
+      return next;
+    });
+  };
 
   // Comfortable light theme state by default, persisted to localStorage
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
@@ -148,17 +373,6 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleLiveTestCompleted = (liveDataset: EagleEyeDataset) => {
-    setDataset(liveDataset);
-    if (liveDataset.metadata.model) {
-      setActiveModelId(liveDataset.metadata.model as CduModelId);
-      setDetectedModelId(liveDataset.metadata.model as CduModelId);
-    }
-    setSelectedSubsystem(null);
-    setSelectedSensor(null);
-    setActiveView('datasheet');
-  };
-
   const handleSelectSensor = (sensor: string | null) => {
     setSelectedSensor(sensor);
     if (sensor && dataset && dataset.parameterStats[sensor]) {
@@ -174,8 +388,21 @@ export const App: React.FC = () => {
   const handleResetView = () => {
     setZoomLevel(1.0);
     setShowLeftDock(true);
+    setShowMiddleDock(true);
     setShowRightDock(true);
     setShowBottomDock(true);
+    setMinimizedWindows({ left: false, middle: false, right: false, bottom: false });
+    setMaximizedWindow('none');
+    setLeftWidth(280);
+    setRightWidth(310);
+    setBottomHeight(240);
+    localStorage.setItem('eagle-eye-dock-left-width', '280');
+    localStorage.setItem('eagle-eye-dock-right-width', '310');
+    localStorage.setItem('eagle-eye-dock-bottom-height', '240');
+    localStorage.setItem('eagle-eye-show-left-dock', 'true');
+    localStorage.setItem('eagle-eye-show-middle-dock', 'true');
+    localStorage.setItem('eagle-eye-show-right-dock', 'true');
+    localStorage.setItem('eagle-eye-show-bottom-dock', 'true');
     setDataset(null);
     setSelectedSensor(null);
     setSelectedSubsystem(null);
@@ -188,7 +415,12 @@ export const App: React.FC = () => {
   // Global Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key.toLowerCase() === 'o') {
+      if (e.key === 'Escape') {
+        if (maximizedWindow !== 'none') {
+          e.preventDefault();
+          setMaximizedWindow('none');
+        }
+      } else if (e.ctrlKey && e.key.toLowerCase() === 'o') {
         e.preventDefault();
         fileInputRef.current?.click();
       } else if (e.ctrlKey && e.key.toLowerCase() === 's') {
@@ -199,16 +431,19 @@ export const App: React.FC = () => {
         handleRunAudit();
       } else if (e.ctrlKey && e.key === '1') {
         e.preventDefault();
-        setShowLeftDock(prev => !prev);
+        handleToggleLeftDock();
       } else if (e.ctrlKey && e.key === '2') {
         e.preventDefault();
-        setShowRightDock(prev => !prev);
+        handleToggleRightDock();
       } else if (e.ctrlKey && e.key === '3') {
         e.preventDefault();
-        setShowBottomDock(prev => !prev);
+        handleToggleBottomDock();
+      } else if (e.ctrlKey && e.key === '4') {
+        e.preventDefault();
+        handleToggleMiddleDock();
       } else if (e.ctrlKey && e.key === '0') {
         e.preventDefault();
-        setZoomLevel(1.0);
+        handleResetView();
       } else if (e.altKey && e.key === '1') {
         e.preventDefault();
         setActiveView('datasheet');
@@ -217,19 +452,22 @@ export const App: React.FC = () => {
         setActiveView('telemetry');
       } else if (e.altKey && e.key === '3') {
         e.preventDefault();
+        setActiveView('dynamics');
+      } else if (e.altKey && e.key === '4') {
+        e.preventDefault();
         setActiveView('diagnostics');
       } else if (e.key === 'F1') {
         e.preventDefault();
         setShowShortcutsModal(true);
-      } else if (e.key === 'F5' || (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'r')) {
+      } else if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'm') {
         e.preventDefault();
-        setShowLiveTestModal(true);
+        handleOpenTerminalModbus();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [dataset]);
+  }, [dataset, maximizedWindow]);
 
   return (
     <div className="cad-app-container">
@@ -251,13 +489,15 @@ export const App: React.FC = () => {
         activeView={activeView}
         onSelectView={setActiveView}
         showLeftDock={showLeftDock}
-        onToggleLeftDock={() => setShowLeftDock(!showLeftDock)}
+        onToggleLeftDock={handleToggleLeftDock}
+        showMiddleDock={showMiddleDock}
+        onToggleMiddleDock={handleToggleMiddleDock}
         showRightDock={showRightDock}
-        onToggleRightDock={() => setShowRightDock(!showRightDock)}
+        onToggleRightDock={handleToggleRightDock}
         showBottomDock={showBottomDock}
-        onToggleBottomDock={() => setShowBottomDock(!showBottomDock)}
+        onToggleBottomDock={handleToggleBottomDock}
         onOpenShortcuts={() => setShowShortcutsModal(true)}
-        onOpenModbusMap={() => setShowModbusModal(true)}
+        onOpenTerminalModbus={handleOpenTerminalModbus}
         onOpenAbout={() => setShowAboutModal(true)}
         filename={dataset?.metadata?.filename}
         theme={theme}
@@ -275,13 +515,49 @@ export const App: React.FC = () => {
         activeModelId={activeModelId}
         onSelectModel={setActiveModelId}
         detectedModelId={detectedModelId}
-        onOpenLiveTest={() => setShowLiveTestModal(true)}
+        showModbusOverlays={showModbusOverlays}
+        onToggleModbusOverlays={handleToggleModbusOverlays}
       />
 
+      {/* Full App Screen Floating Notification Banner */}
+      {maximizedWindow !== 'none' && (
+        <div className="cad-fullscreen-banner" role="status">
+          <div className="cad-fullscreen-banner-content">
+            <span className="cad-fullscreen-pulse"></span>
+            <span className="cad-fullscreen-text">
+              <strong>
+                {maximizedWindow === 'left' && 'Workspace Tree (Left Window)'}
+                {maximizedWindow === 'middle' && 'Main Document Canvas (Middle Window)'}
+                {maximizedWindow === 'right' && 'Parameter Inspector (Right Window)'}
+                {maximizedWindow === 'bottom' && 'Diagnostic Terminal (Bottom Window)'}
+              </strong> in Full App Screen Mode
+            </span>
+            <span className="cad-fullscreen-hint">(Press Esc or click to restore)</span>
+            <button
+              type="button"
+              className="cad-fullscreen-restore-btn"
+              onClick={() => setMaximizedWindow('none')}
+              title="Exit Full App Screen (Esc)"
+            >
+              <Minimize2 size={12} />
+              <span>Restore Normal Size</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Main Multi-Window Engineering Workspace */}
-      <main className="cad-main-workspace">
-        {/* Left Side Window: Workspace Tree (Dockable & Collapsible) */}
-        {showLeftDock && (
+      <main
+        className="cad-main-workspace"
+        ref={workspaceRef}
+        style={{
+          '--left-width': `${leftWidth}px`,
+          '--right-width': `${rightWidth}px`,
+          '--bottom-height': `${bottomHeight}px`
+        } as React.CSSProperties}
+      >
+        {/* Full App Screen Mode: Left Window */}
+        {maximizedWindow === 'left' && (
           <CadWorkspaceTree
             dataset={dataset}
             selectedSensor={selectedSensor}
@@ -289,35 +565,67 @@ export const App: React.FC = () => {
             onSelectSubsystem={handleSelectSubsystem}
             activeView={activeView}
             onSelectSensor={handleSelectSensor}
-            onClose={() => setShowLeftDock(false)}
+            onClose={() => { setMaximizedWindow('none'); setShowLeftDock(false); }}
             onOpenFileClick={() => fileInputRef.current?.click()}
+            showModbusOverlays={showModbusOverlays}
+            isMaximized={true}
+            onToggleMaximize={() => setMaximizedWindow('none')}
+            onMinimize={() => { setMaximizedWindow('none'); handleToggleMinimize('left'); }}
+            style={{ width: '100%', height: '100%', borderRight: 'none' }}
           />
         )}
 
-        {/* Center Area: Tabbed Document Canvas + Bottom Terminal */}
-        <section className="cad-center-area">
-          <CadTabbedCanvas
+        {/* Full App Screen Mode: Middle Window */}
+        {maximizedWindow === 'middle' && (
+          <section className="cad-center-area" style={{ width: '100%', height: '100%' }}>
+            <CadTabbedCanvas
+              dataset={dataset}
+              activeView={activeView}
+              onSelectView={setActiveView}
+              selectedSensor={selectedSensor}
+              onSelectSensor={handleSelectSensor}
+              selectedSubsystem={selectedSubsystem}
+              onSelectSubsystem={handleSelectSubsystem}
+              onOpenFileClick={() => fileInputRef.current?.click()}
+              onFileUpload={handleFileUpload}
+              isLoading={isLoading}
+              uploadError={uploadError}
+              onClearError={() => setUploadError(null)}
+              onOpenModbusMap={handleOpenTerminalModbus}
+              zoomLevel={zoomLevel}
+              onMouseMoveCoords={(x, y) => setCursorCoords({ x, y })}
+              onLoadSample={handleLoadSample}
+              isMaximized={true}
+              onToggleMaximize={() => setMaximizedWindow('none')}
+              onMinimize={() => { setMaximizedWindow('none'); handleToggleMinimize('middle'); }}
+              onClose={() => { setMaximizedWindow('none'); setShowMiddleDock(false); }}
+              style={{ width: '100%', height: '100%' }}
+            />
+          </section>
+        )}
+
+        {/* Full App Screen Mode: Right Window */}
+        {maximizedWindow === 'right' && (
+          <CadParameterInspector
             dataset={dataset}
-            activeView={activeView}
-            onSelectView={setActiveView}
             selectedSensor={selectedSensor}
             onSelectSensor={handleSelectSensor}
             selectedSubsystem={selectedSubsystem}
             onSelectSubsystem={handleSelectSubsystem}
-            onOpenFileClick={() => fileInputRef.current?.click()}
-            onFileUpload={handleFileUpload}
-            isLoading={isLoading}
-            uploadError={uploadError}
-            onClearError={() => setUploadError(null)}
-            onOpenModbusMap={() => setShowModbusModal(true)}
-            zoomLevel={zoomLevel}
-            onMouseMoveCoords={(x, y) => setCursorCoords({ x, y })}
-            onLoadSample={handleLoadSample}
-            onOpenLiveTest={() => setShowLiveTestModal(true)}
+            activeModelId={activeModelId}
+            onClose={() => { setMaximizedWindow('none'); setShowRightDock(false); }}
+            showModbusOverlays={showModbusOverlays}
+            onOpenTerminalModbus={handleOpenTerminalModbus}
+            isMaximized={true}
+            onToggleMaximize={() => setMaximizedWindow('none')}
+            onMinimize={() => { setMaximizedWindow('none'); handleToggleMinimize('right'); }}
+            style={{ width: '100%', height: '100%', borderLeft: 'none' }}
           />
+        )}
 
-          {/* Bottom Side Window: Terminal & Diagnostics Messages */}
-          {showBottomDock && (
+        {/* Full App Screen Mode: Bottom Window */}
+        {maximizedWindow === 'bottom' && (
+          <section className="cad-center-area" style={{ width: '100%', height: '100%' }}>
             <CadTerminalPanel
               dataset={dataset}
               selectedSensor={selectedSensor}
@@ -326,22 +634,183 @@ export const App: React.FC = () => {
               onSelectSubsystem={handleSelectSubsystem}
               onRunAudit={handleRunAudit}
               onExport={handleExport}
-              onClose={() => setShowBottomDock(false)}
+              onClose={() => { setMaximizedWindow('none'); setShowBottomDock(false); }}
+              activeTab={terminalTab}
+              onSelectTab={setTerminalTab}
+              isMaximized={true}
+              onToggleMaximize={() => setMaximizedWindow('none')}
+              onMinimize={() => { setMaximizedWindow('none'); handleToggleMinimize('bottom'); }}
+              style={{ width: '100%', height: '100%', borderTop: 'none' }}
             />
-          )}
-        </section>
+          </section>
+        )}
 
-        {/* Right Side Window: Parameter Inspector (Dockable & Collapsible) */}
-        {showRightDock && (
-          <CadParameterInspector
-            dataset={dataset}
-            selectedSensor={selectedSensor}
-            onSelectSensor={handleSelectSensor}
-            selectedSubsystem={selectedSubsystem}
-            onSelectSubsystem={handleSelectSubsystem}
-            activeModelId={activeModelId}
-            onClose={() => setShowRightDock(false)}
-          />
+        {/* Normal Multi-Window Workspace Mode */}
+        {maximizedWindow === 'none' && (
+          <>
+            {/* Left Side Window: Workspace Tree */}
+            {showLeftDock && (
+              <CadWorkspaceTree
+                dataset={dataset}
+                selectedSensor={selectedSensor}
+                selectedSubsystem={selectedSubsystem}
+                onSelectSubsystem={handleSelectSubsystem}
+                activeView={activeView}
+                onSelectSensor={handleSelectSensor}
+                onClose={() => setShowLeftDock(false)}
+                onOpenFileClick={() => fileInputRef.current?.click()}
+                showModbusOverlays={showModbusOverlays}
+                isMinimized={minimizedWindows.left}
+                onMinimize={() => handleToggleMinimize('left')}
+                isMaximized={false}
+                onToggleMaximize={() => handleToggleMaximize('left')}
+                onRestore={() => setMinimizedWindows(p => ({ ...p, left: false }))}
+                style={{ width: minimizedWindows.left ? '32px' : 'var(--left-width)' }}
+              />
+            )}
+
+            {/* Left Splitter */}
+            {showLeftDock && !minimizedWindows.left && (
+              <CadSplitter
+                direction="vertical"
+                onDragStart={handleDragStart}
+                onResize={handleResizeLeftMove}
+                onDragEnd={handleResizeLeftEnd}
+                onDoubleClick={() => {
+                  setLeftWidth(280);
+                  localStorage.setItem('eagle-eye-dock-left-width', '280');
+                  if (workspaceRef.current) workspaceRef.current.style.setProperty('--left-width', '280px');
+                }}
+                title="Drag to resize Workspace Tree • Double-click to reset (280px)"
+              />
+            )}
+
+            {/* Center Area: Tabbed Canvas (Middle Window) + Terminal (Bottom Window) */}
+            <section className="cad-center-area">
+              {/* Middle Window: Tabbed Document Canvas */}
+              {showMiddleDock ? (
+                <CadTabbedCanvas
+                  dataset={dataset}
+                  activeView={activeView}
+                  onSelectView={setActiveView}
+                  selectedSensor={selectedSensor}
+                  onSelectSensor={handleSelectSensor}
+                  selectedSubsystem={selectedSubsystem}
+                  onSelectSubsystem={handleSelectSubsystem}
+                  onOpenFileClick={() => fileInputRef.current?.click()}
+                  onFileUpload={handleFileUpload}
+                  isLoading={isLoading}
+                  uploadError={uploadError}
+                  onClearError={() => setUploadError(null)}
+                  onOpenModbusMap={handleOpenTerminalModbus}
+                  zoomLevel={zoomLevel}
+                  onMouseMoveCoords={(x, y) => setCursorCoords({ x, y })}
+                  onLoadSample={handleLoadSample}
+                  isMinimized={minimizedWindows.middle}
+                  onMinimize={() => handleToggleMinimize('middle')}
+                  isMaximized={false}
+                  onToggleMaximize={() => handleToggleMaximize('middle')}
+                  onRestore={() => setMinimizedWindows(p => ({ ...p, middle: false }))}
+                  onClose={() => setShowMiddleDock(false)}
+                  style={{
+                    flex: minimizedWindows.middle ? '0 0 34px' : (showBottomDock && !minimizedWindows.bottom ? '1 1 0' : '1 1 100%'),
+                    minHeight: minimizedWindows.middle ? '34px' : 0
+                  }}
+                />
+              ) : (
+                <div className="cad-middle-closed-placeholder">
+                  <div className="cad-middle-closed-card">
+                    <span className="cad-middle-closed-title">Main Document Canvas is Closed</span>
+                    <button
+                      type="button"
+                      className="cad-dock-restore-canvas-btn"
+                      onClick={() => setShowMiddleDock(true)}
+                    >
+                      Restore Main Canvas
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Bottom Splitter */}
+              {showMiddleDock && !minimizedWindows.middle && showBottomDock && !minimizedWindows.bottom && (
+                <CadSplitter
+                  direction="horizontal"
+                  onDragStart={handleDragStart}
+                  onResize={handleResizeBottomMove}
+                  onDragEnd={handleResizeBottomEnd}
+                  onDoubleClick={() => {
+                    setBottomHeight(240);
+                    localStorage.setItem('eagle-eye-dock-bottom-height', '240');
+                    if (workspaceRef.current) workspaceRef.current.style.setProperty('--bottom-height', '240px');
+                  }}
+                  title="Drag to resize Diagnostic Terminal • Double-click to reset (240px)"
+                />
+              )}
+
+              {/* Bottom Window: Terminal & Diagnostics Messages */}
+              {showBottomDock && (
+                <CadTerminalPanel
+                  dataset={dataset}
+                  selectedSensor={selectedSensor}
+                  selectedSubsystem={selectedSubsystem}
+                  onSelectSensor={handleSelectSensor}
+                  onSelectSubsystem={handleSelectSubsystem}
+                  onRunAudit={handleRunAudit}
+                  onExport={handleExport}
+                  onClose={() => setShowBottomDock(false)}
+                  activeTab={terminalTab}
+                  onSelectTab={setTerminalTab}
+                  isMinimized={minimizedWindows.bottom}
+                  onMinimize={() => handleToggleMinimize('bottom')}
+                  isMaximized={false}
+                  onToggleMaximize={() => handleToggleMaximize('bottom')}
+                  onRestore={() => setMinimizedWindows(p => ({ ...p, bottom: false }))}
+                  style={{
+                    height: minimizedWindows.bottom ? '28px' : 'var(--bottom-height)',
+                    flex: 'none'
+                  }}
+                />
+              )}
+            </section>
+
+            {/* Right Splitter */}
+            {showRightDock && !minimizedWindows.right && (
+              <CadSplitter
+                direction="vertical"
+                onDragStart={handleDragStart}
+                onResize={handleResizeRightMove}
+                onDragEnd={handleResizeRightEnd}
+                onDoubleClick={() => {
+                  setRightWidth(310);
+                  localStorage.setItem('eagle-eye-dock-right-width', '310');
+                  if (workspaceRef.current) workspaceRef.current.style.setProperty('--right-width', '310px');
+                }}
+                title="Drag to resize Parameter Inspector • Double-click to reset (310px)"
+              />
+            )}
+
+            {/* Right Side Window: Parameter Inspector */}
+            {showRightDock && (
+              <CadParameterInspector
+                dataset={dataset}
+                selectedSensor={selectedSensor}
+                onSelectSensor={handleSelectSensor}
+                selectedSubsystem={selectedSubsystem}
+                onSelectSubsystem={handleSelectSubsystem}
+                activeModelId={activeModelId}
+                onClose={() => setShowRightDock(false)}
+                showModbusOverlays={showModbusOverlays}
+                onOpenTerminalModbus={handleOpenTerminalModbus}
+                isMinimized={minimizedWindows.right}
+                onMinimize={() => handleToggleMinimize('right')}
+                isMaximized={false}
+                onToggleMaximize={() => handleToggleMaximize('right')}
+                onRestore={() => setMinimizedWindows(p => ({ ...p, right: false }))}
+                style={{ width: minimizedWindows.right ? '32px' : 'var(--right-width)' }}
+              />
+            )}
+          </>
         )}
       </main>
 
@@ -352,11 +821,13 @@ export const App: React.FC = () => {
         selectedSubsystem={selectedSubsystem}
         selectedSensor={selectedSensor}
         showLeftDock={showLeftDock}
-        onToggleLeftDock={() => setShowLeftDock(!showLeftDock)}
+        onToggleLeftDock={handleToggleLeftDock}
+        showMiddleDock={showMiddleDock}
+        onToggleMiddleDock={handleToggleMiddleDock}
         showRightDock={showRightDock}
-        onToggleRightDock={() => setShowRightDock(!showRightDock)}
+        onToggleRightDock={handleToggleRightDock}
         showBottomDock={showBottomDock}
-        onToggleBottomDock={() => setShowBottomDock(!showBottomDock)}
+        onToggleBottomDock={handleToggleBottomDock}
         zoomLevel={zoomLevel}
         cursorCoords={cursorCoords}
       />
@@ -366,19 +837,9 @@ export const App: React.FC = () => {
         isOpen={showShortcutsModal}
         onClose={() => setShowShortcutsModal(false)}
       />
-      <CadModbusModal
-        isOpen={showModbusModal}
-        onClose={() => setShowModbusModal(false)}
-      />
       <CadAboutModal
         isOpen={showAboutModal}
         onClose={() => setShowAboutModal(false)}
-      />
-      <CadLiveTestModal
-        isOpen={showLiveTestModal}
-        onClose={() => setShowLiveTestModal(false)}
-        onTestCompleted={handleLiveTestCompleted}
-        activeModelId={activeModelId}
       />
     </div>
   );

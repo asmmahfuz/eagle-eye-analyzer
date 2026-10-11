@@ -41,13 +41,17 @@ interface CadTopMenuBarProps {
   onSelectView: (view: CadMainView) => void;
   showLeftDock: boolean;
   onToggleLeftDock: () => void;
+  showMiddleDock?: boolean;
+  onToggleMiddleDock?: () => void;
   showRightDock: boolean;
   onToggleRightDock: () => void;
   showBottomDock: boolean;
   onToggleBottomDock: () => void;
   onOpenShortcuts: () => void;
-  onOpenModbusMap: () => void;
+  onOpenTerminalModbus?: () => void;
   onOpenAbout: () => void;
+  showModbusOverlays?: boolean;
+  onToggleModbusOverlays?: () => void;
   filename?: string;
   theme?: 'light' | 'dark';
   onToggleTheme?: () => void;
@@ -64,7 +68,6 @@ interface CadTopMenuBarProps {
   activeModelId?: CduModelId;
   onSelectModel?: (modelId: CduModelId) => void;
   detectedModelId?: CduModelId;
-  onOpenLiveTest?: () => void;
 }
 
 export const CadTopMenuBar: React.FC<CadTopMenuBarProps> = ({
@@ -76,12 +79,14 @@ export const CadTopMenuBar: React.FC<CadTopMenuBarProps> = ({
   onSelectView,
   showLeftDock,
   onToggleLeftDock,
+  showMiddleDock,
+  onToggleMiddleDock,
   showRightDock,
   onToggleRightDock,
   showBottomDock,
   onToggleBottomDock,
   onOpenShortcuts,
-  onOpenModbusMap,
+  onOpenTerminalModbus,
   onOpenAbout,
   filename,
   theme = 'light',
@@ -99,7 +104,8 @@ export const CadTopMenuBar: React.FC<CadTopMenuBarProps> = ({
   activeModelId = 'CHx2000',
   onSelectModel,
   detectedModelId,
-  onOpenLiveTest
+  showModbusOverlays = false,
+  onToggleModbusOverlays
 }) => {
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const menuBarRef = useRef<HTMLDivElement>(null);
@@ -186,16 +192,6 @@ export const CadTopMenuBar: React.FC<CadTopMenuBarProps> = ({
               >
                 <Play size={11} />
               </button>
-              {onOpenLiveTest && (
-                <button
-                  className="cad-title-icon-btn cad-btn-live text-cyan"
-                  onClick={onOpenLiveTest}
-                  title="Run Live Test-Bench (Excitation Profile) [F5]"
-                  aria-label="Run Live Test-Bench"
-                >
-                  <Play size={11} style={{ fill: '#00d2ff' }} />
-                </button>
-              )}
               <button
                 className="cad-title-icon-btn cad-btn-reset"
                 onClick={onResetView}
@@ -208,13 +204,13 @@ export const CadTopMenuBar: React.FC<CadTopMenuBarProps> = ({
 
             <span className="cad-title-toolbar-sep"></span>
 
-            {/* Quick Access View Switcher Strip for the 3 Consolidated Tabs */}
+            {/* Quick Access View Switcher Strip for the 4 Consolidated Tabs */}
             <div className="cad-title-btn-group cad-title-view-switcher" role="radiogroup" aria-label="Consolidated Canvas Views">
               <button
                 className={`cad-title-icon-btn cad-view-btn cad-btn-datasheet ${activeView === 'datasheet' ? 'active' : ''}`}
                 onClick={() => onSelectView('datasheet')}
-                title="Data Sheet & Operating Stages [Alt+1]"
-                aria-label="Data Sheet & Operating Stages"
+                title="Data Sheet & Verification Matrix [Alt+1]"
+                aria-label="Data Sheet & Verification Matrix"
               >
                 <BarChart2 size={12} />
                 <span className="cad-title-btn-label">Data Sheet</span>
@@ -222,19 +218,28 @@ export const CadTopMenuBar: React.FC<CadTopMenuBarProps> = ({
               <button
                 className={`cad-title-icon-btn cad-view-btn cad-btn-telemetry ${activeView === 'telemetry' ? 'active' : ''}`}
                 onClick={() => onSelectView('telemetry')}
-                title="Telemetry Scope [Alt+2]"
-                aria-label="Telemetry Scope"
+                title="Telemetry Oscilloscope [Alt+2]"
+                aria-label="Telemetry Oscilloscope"
               >
                 <Activity size={12} />
                 <span className="cad-title-btn-label">Telemetry</span>
               </button>
               <button
+                className={`cad-title-icon-btn cad-view-btn cad-btn-dynamics ${activeView === 'dynamics' ? 'active' : ''}`}
+                onClick={() => onSelectView('dynamics')}
+                title="System Dynamics & Stage Coupling [Alt+3]"
+                aria-label="System Dynamics & Stage Coupling"
+              >
+                <Sliders size={12} />
+                <span className="cad-title-btn-label">Dynamics</span>
+              </button>
+              <button
                 className={`cad-title-icon-btn cad-view-btn cad-btn-diagnostics ${activeView === 'diagnostics' ? 'active' : ''}`}
                 onClick={() => onSelectView('diagnostics')}
-                title="Diagnostics & Rework Punch-List [Alt+3]"
-                aria-label="Diagnostics & Rework Punch-List"
+                title="Diagnostics & Rework Directives [Alt+4]"
+                aria-label="Diagnostics & Rework Directives"
               >
-                <AlertTriangle size={12} />
+                <ShieldAlert size={12} />
                 <span className="cad-title-btn-label">Diagnostics</span>
               </button>
             </div>
@@ -298,9 +303,10 @@ export const CadTopMenuBar: React.FC<CadTopMenuBarProps> = ({
                 )}
                 <span className="cad-breadcrumb-arrow">›</span>
                 <span className="cad-breadcrumb-view">
-                  {activeView === 'datasheet' && 'Data Sheet & Stages'}
-                  {activeView === 'telemetry' && (selectedSensor ? `Scope: ${selectedSensor}` : 'Telemetry Scope')}
-                  {activeView === 'diagnostics' && 'Diagnostics & Punch-List'}
+                  {activeView === 'datasheet' && 'Data Sheet & Verification Matrix'}
+                  {activeView === 'telemetry' && (selectedSensor ? `Scope: ${selectedSensor}` : 'Telemetry Oscilloscope')}
+                  {activeView === 'dynamics' && 'System Dynamics & Coupling'}
+                  {activeView === 'diagnostics' && 'Diagnostics & Rework Directives'}
                 </span>
               </div>
             </>
@@ -359,13 +365,6 @@ export const CadTopMenuBar: React.FC<CadTopMenuBarProps> = ({
                   <span className="cad-dd-label">Load Sample (CD050L)...</span>
                 </button>
               )}
-              {onOpenLiveTest && (
-                <button className="cad-dropdown-item" onClick={() => executeAction(onOpenLiveTest)}>
-                  <span className="cad-dd-icon"><Play size={14} className="text-cyan" /></span>
-                  <span className="cad-dd-label">Run Live Test-Bench (Excitation Profile)...</span>
-                  <span className="cad-dd-shortcut">F5</span>
-                </button>
-              )}
               <div className="cad-dd-divider"></div>
               <button className="cad-dropdown-item" onClick={() => executeAction(onExport)}>
                 <span className="cad-dd-icon"><Download size={14} /></span>
@@ -399,21 +398,27 @@ export const CadTopMenuBar: React.FC<CadTopMenuBarProps> = ({
             <div className="cad-dropdown-menu">
               <button className="cad-dropdown-item" onClick={() => executeAction(() => onSelectView('datasheet'))}>
                 <span className="cad-dd-icon"><BarChart2 size={14} /></span>
-                <span className="cad-dd-label">Data Sheet & Operating Stages</span>
+                <span className="cad-dd-label">Data Sheet & Verification Matrix</span>
                 <span className="cad-dd-check">{activeView === 'datasheet' ? '✓' : ''}</span>
                 <span className="cad-dd-shortcut">Alt+1</span>
               </button>
               <button className="cad-dropdown-item" onClick={() => executeAction(() => onSelectView('telemetry'))}>
                 <span className="cad-dd-icon"><Activity size={14} /></span>
-                <span className="cad-dd-label">Telemetry Scope</span>
+                <span className="cad-dd-label">Telemetry Oscilloscope</span>
                 <span className="cad-dd-check">{activeView === 'telemetry' ? '✓' : ''}</span>
                 <span className="cad-dd-shortcut">Alt+2</span>
               </button>
-              <button className="cad-dropdown-item" onClick={() => executeAction(() => onSelectView('diagnostics'))}>
-                <span className="cad-dd-icon"><AlertTriangle size={14} /></span>
-                <span className="cad-dd-label">Diagnostics & Rework Punch-List</span>
-                <span className="cad-dd-check">{activeView === 'diagnostics' ? '✓' : ''}</span>
+              <button className="cad-dropdown-item" onClick={() => executeAction(() => onSelectView('dynamics'))}>
+                <span className="cad-dd-icon"><Sliders size={14} /></span>
+                <span className="cad-dd-label">System Dynamics & Stage Coupling</span>
+                <span className="cad-dd-check">{activeView === 'dynamics' ? '✓' : ''}</span>
                 <span className="cad-dd-shortcut">Alt+3</span>
+              </button>
+              <button className="cad-dropdown-item" onClick={() => executeAction(() => onSelectView('diagnostics'))}>
+                <span className="cad-dd-icon"><ShieldAlert size={14} /></span>
+                <span className="cad-dd-label">Diagnostics & Rework Directives</span>
+                <span className="cad-dd-check">{activeView === 'diagnostics' ? '✓' : ''}</span>
+                <span className="cad-dd-shortcut">Alt+4</span>
               </button>
               <div className="cad-dd-divider"></div>
               <button className="cad-dropdown-item" onClick={() => executeAction(onRunAudit)}>
@@ -421,13 +426,6 @@ export const CadTopMenuBar: React.FC<CadTopMenuBarProps> = ({
                 <span className="cad-dd-label">Run Full 3-Sigma SPC Audit</span>
                 <span className="cad-dd-shortcut">Ctrl+R</span>
               </button>
-              {onOpenLiveTest && (
-                <button className="cad-dropdown-item" onClick={() => executeAction(onOpenLiveTest)}>
-                  <span className="cad-dd-icon"><Play size={14} className="text-cyan" /></span>
-                  <span className="cad-dd-label">Execute Live Excitation Profile...</span>
-                  <span className="cad-dd-shortcut">F5</span>
-                </button>
-              )}
             </div>
           )}
         </div>
@@ -449,6 +447,14 @@ export const CadTopMenuBar: React.FC<CadTopMenuBarProps> = ({
                 <span className="cad-dd-check">{showLeftDock ? '✓' : ''}</span>
                 <span className="cad-dd-shortcut">Ctrl+1</span>
               </button>
+              {onToggleMiddleDock && (
+                <button className="cad-dropdown-item" onClick={() => executeAction(onToggleMiddleDock)}>
+                  <span className="cad-dd-icon"><Layers size={14} /></span>
+                  <span className="cad-dd-label">Main Canvas (Middle Window)</span>
+                  <span className="cad-dd-check">{showMiddleDock ? '✓' : ''}</span>
+                  <span className="cad-dd-shortcut">Ctrl+4</span>
+                </button>
+              )}
               <button className="cad-dropdown-item" onClick={() => executeAction(onToggleRightDock)}>
                 <span className="cad-dd-icon"><PanelRight size={14} /></span>
                 <span className="cad-dd-label">Parameter Inspector (Right Window)</span>
@@ -478,6 +484,16 @@ export const CadTopMenuBar: React.FC<CadTopMenuBarProps> = ({
                   <button className="cad-dropdown-item" onClick={() => executeAction(onToggleTheme)}>
                     <span className="cad-dd-icon">{theme === 'light' ? <Moon size={14} /> : <Sun size={14} />}</span>
                     <span className="cad-dd-label">Color Theme: {theme === 'light' ? 'Dark Mode' : 'Comfortable Light'}</span>
+                  </button>
+                </>
+              )}
+              {onToggleModbusOverlays && (
+                <>
+                  <div className="cad-dd-divider"></div>
+                  <button className="cad-dropdown-item" onClick={() => executeAction(onToggleModbusOverlays)}>
+                    <span className="cad-dd-icon"><Cpu size={14} /></span>
+                    <span className="cad-dd-label">Modbus Register Overlays (Engineering Mode)</span>
+                    <span className="cad-dd-check">{showModbusOverlays ? '✓' : ''}</span>
                   </button>
                 </>
               )}
@@ -517,8 +533,12 @@ export const CadTopMenuBar: React.FC<CadTopMenuBarProps> = ({
                 <span className="cad-dd-icon"><Table size={14} /></span>
                 <span className="cad-dd-label">10-Stage Operating Conditions Matrix</span>
               </button>
+              <button className="cad-dropdown-item" onClick={() => executeAction(() => onSelectView('dynamics'))}>
+                <span className="cad-dd-icon"><Sliders size={14} /></span>
+                <span className="cad-dd-label">Closed-Loop Stage Coupling & System Dynamics</span>
+              </button>
               <button className="cad-dropdown-item" onClick={() => executeAction(() => onSelectView('diagnostics'))}>
-                <span className="cad-dd-icon"><AlertTriangle size={14} /></span>
+                <span className="cad-dd-icon"><ShieldAlert size={14} /></span>
                 <span className="cad-dd-label">Subsystem Failure Root-Cause Attribution</span>
               </button>
             </div>
@@ -536,17 +556,6 @@ export const CadTopMenuBar: React.FC<CadTopMenuBarProps> = ({
           </button>
           {openMenu === 'tools' && (
             <div className="cad-dropdown-menu">
-              <button className="cad-dropdown-item" onClick={() => executeAction(onOpenModbusMap)}>
-                <span className="cad-dd-icon"><Cpu size={14} /></span>
-                <span className="cad-dd-label">Modbus Holding Register Map (Port 502)</span>
-              </button>
-              {onOpenLiveTest && (
-                <button className="cad-dropdown-item" onClick={() => executeAction(onOpenLiveTest)}>
-                  <span className="cad-dd-icon"><Play size={14} className="text-cyan" /></span>
-                  <span className="cad-dd-label">Live Test-Bench Execution & Modbus Polling...</span>
-                  <span className="cad-dd-shortcut">F5</span>
-                </button>
-              )}
               <button className="cad-dropdown-item" onClick={() => executeAction(onToggleBottomDock)}>
                 <span className="cad-dd-icon"><Layers size={14} /></span>
                 <span className="cad-dd-label">Raw Terminal Telemetry Log Stream</span>
@@ -558,6 +567,12 @@ export const CadTopMenuBar: React.FC<CadTopMenuBarProps> = ({
               <button className="cad-dropdown-item" onClick={() => executeAction(onExport)}>
                 <span className="cad-dd-icon"><Download size={14} /></span>
                 <span className="cad-dd-label">Generate Multi-Sheet Excel Verification File</span>
+              </button>
+              <div className="cad-dd-divider"></div>
+              <button className="cad-dropdown-item" onClick={() => executeAction(onOpenTerminalModbus || onToggleBottomDock)}>
+                <span className="cad-dd-icon"><Cpu size={14} /></span>
+                <span className="cad-dd-label">Modbus Holding Register Map (Terminal)</span>
+                <span className="cad-dd-shortcut">Ctrl+Shift+M</span>
               </button>
               {onSelectModel && (
                 <>
@@ -596,21 +611,27 @@ export const CadTopMenuBar: React.FC<CadTopMenuBarProps> = ({
             <div className="cad-dropdown-menu">
               <button className="cad-dropdown-item" onClick={() => executeAction(() => onSelectView('datasheet'))}>
                 <span className="cad-dd-icon"><BarChart2 size={14} /></span>
-                <span className="cad-dd-label">Switch to: Data Sheet & Operating Stages</span>
+                <span className="cad-dd-label">Switch to: Data Sheet & Verification Matrix</span>
                 <span className="cad-dd-check">{activeView === 'datasheet' ? '✓' : ''}</span>
                 <span className="cad-dd-shortcut">Alt+1</span>
               </button>
               <button className="cad-dropdown-item" onClick={() => executeAction(() => onSelectView('telemetry'))}>
                 <span className="cad-dd-icon"><Activity size={14} /></span>
-                <span className="cad-dd-label">Switch to: Telemetry Scope</span>
+                <span className="cad-dd-label">Switch to: Telemetry Oscilloscope</span>
                 <span className="cad-dd-check">{activeView === 'telemetry' ? '✓' : ''}</span>
                 <span className="cad-dd-shortcut">Alt+2</span>
               </button>
-              <button className="cad-dropdown-item" onClick={() => executeAction(() => onSelectView('diagnostics'))}>
-                <span className="cad-dd-icon"><AlertTriangle size={14} /></span>
-                <span className="cad-dd-label">Switch to: Diagnostics & Rework Punch-List</span>
-                <span className="cad-dd-check">{activeView === 'diagnostics' ? '✓' : ''}</span>
+              <button className="cad-dropdown-item" onClick={() => executeAction(() => onSelectView('dynamics'))}>
+                <span className="cad-dd-icon"><Sliders size={14} /></span>
+                <span className="cad-dd-label">Switch to: System Dynamics & Stage Coupling</span>
+                <span className="cad-dd-check">{activeView === 'dynamics' ? '✓' : ''}</span>
                 <span className="cad-dd-shortcut">Alt+3</span>
+              </button>
+              <button className="cad-dropdown-item" onClick={() => executeAction(() => onSelectView('diagnostics'))}>
+                <span className="cad-dd-icon"><ShieldAlert size={14} /></span>
+                <span className="cad-dd-label">Switch to: Diagnostics & Rework Directives</span>
+                <span className="cad-dd-check">{activeView === 'diagnostics' ? '✓' : ''}</span>
+                <span className="cad-dd-shortcut">Alt+4</span>
               </button>
               <div className="cad-dd-divider"></div>
               <button className="cad-dropdown-item" onClick={() => executeAction(() => {
@@ -646,10 +667,6 @@ export const CadTopMenuBar: React.FC<CadTopMenuBarProps> = ({
                 <span className="cad-dd-icon"><HelpCircle size={14} /></span>
                 <span className="cad-dd-label">Keyboard Shortcuts</span>
                 <span className="cad-dd-shortcut">F1</span>
-              </button>
-              <button className="cad-dropdown-item" onClick={() => executeAction(onOpenModbusMap)}>
-                <span className="cad-dd-icon"><Cpu size={14} /></span>
-                <span className="cad-dd-label">CDU Modbus & PLC Architecture</span>
               </button>
               <button className="cad-dropdown-item" onClick={() => executeAction(onOpenAbout)}>
                 <span className="cad-dd-icon"><HelpCircle size={14} /></span>

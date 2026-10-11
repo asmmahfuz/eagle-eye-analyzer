@@ -3,14 +3,18 @@ import { EagleEyeDataset, SubsystemCategory, SUBSYSTEM_LABELS } from '../../type
 import { 
   TerminalIcon, 
   X, 
+  Minus,
   Copy, 
   Trash2, 
   Maximize2, 
   Minimize2, 
   Search, 
   RefreshCw, 
-  Cpu 
+  Cpu,
+  Layers 
 } from '../Icons';
+import { CadTerminalModbusTable } from './CadTerminalModbusTable';
+import { getRegisterByName, getRegisterByAddress } from '../../engine/registers';
 
 interface LogMessage {
   id: string;
@@ -22,6 +26,8 @@ interface LogMessage {
   stageNum?: number;
 }
 
+export type TerminalTab = 'build' | 'registers' | 'stream' | 'console' | 'raw';
+
 interface CadTerminalPanelProps {
   dataset: EagleEyeDataset | null;
   selectedSensor?: string | null;
@@ -31,6 +37,14 @@ interface CadTerminalPanelProps {
   onRunAudit: () => void;
   onExport: () => void;
   onClose: () => void;
+  activeTab?: TerminalTab;
+  onSelectTab?: (tab: TerminalTab) => void;
+  isMinimized?: boolean;
+  onMinimize?: () => void;
+  isMaximized?: boolean;
+  onToggleMaximize?: () => void;
+  onRestore?: () => void;
+  style?: React.CSSProperties;
 }
 
 export const CadTerminalPanel: React.FC<CadTerminalPanelProps> = ({
@@ -41,9 +55,19 @@ export const CadTerminalPanel: React.FC<CadTerminalPanelProps> = ({
   onSelectSubsystem,
   onRunAudit,
   onExport,
-  onClose
+  onClose,
+  activeTab: propActiveTab,
+  onSelectTab,
+  isMinimized = false,
+  onMinimize,
+  isMaximized = false,
+  onToggleMaximize,
+  onRestore,
+  style
 }) => {
-  const [activeTab, setActiveTab] = useState<'build' | 'modbus' | 'console' | 'raw'>('build');
+  const [internalTab, setInternalTab] = useState<TerminalTab>('build');
+  const activeTab = propActiveTab !== undefined ? propActiveTab : internalTab;
+  const setActiveTab = onSelectTab || setInternalTab;
   const [filterLevel, setFilterLevel] = useState<'all' | 'info' | 'warn' | 'error'>('all');
   const [searchText, setSearchText] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
@@ -139,7 +163,7 @@ export const CadTerminalPanel: React.FC<CadTerminalPanelProps> = ({
             id: `fail-${selectedSensor}-${idx}`,
             level: 'warn',
             category: pt.category.toUpperCase(),
-            text: `[3σ EXCURSION] ${pt.parameter} at stage t = ${pt.timeSec}s (Flow ${pt.flowSp || '--'} LPM, DP ${pt.dpSp || '--'} psi): Measured ${measStr} ${pt.unit} vs [ ${lowStr} ~ ${highStr} ${pt.unit} ] (Deficit: ${deltaStr} ${pt.unit})`,
+            text: `[FAILED] ${pt.parameter} at stage t = ${pt.timeSec}s (Flow ${pt.flowSp || '--'} LPM, DP ${pt.dpSp || '--'} psi): Measured ${measStr} ${pt.unit} vs [ ${lowStr} ~ ${highStr} ${pt.unit} ] (Deficit: ${deltaStr} ${pt.unit})`,
             parameter: pt.parameter,
             stageNum: pt.timeSec
           });
@@ -149,7 +173,7 @@ export const CadTerminalPanel: React.FC<CadTerminalPanelProps> = ({
           id: 'pass-info',
           level: 'info',
           category: 'COMPLIANCE',
-          text: `All 10 operating stages (15s – 525s) measured strictly within dual ±3σ statistical envelopes. Zero excursions detected.`,
+          text: `All 10 operating stages (15s – 525s) measured strictly within tolerance envelopes. Zero failed points detected.`,
           parameter: selectedSensor
         });
       }
@@ -158,7 +182,7 @@ export const CadTerminalPanel: React.FC<CadTerminalPanelProps> = ({
         const peakStr = summary.peak !== null ? `${summary.peak.toFixed(2)} ${unitStr}` : '--';
         const minStr = summary.min !== null ? `${summary.min.toFixed(2)} ${unitStr}` : '--';
         const settlingStr = summary.settling !== null ? `${summary.settling.toFixed(2)} ${unitStr}` : '--';
-        const verdict = summary.failCount === 0 ? 'PASS' : `FAIL (${summary.failCount} stage excursions)`;
+        const verdict = summary.failCount === 0 ? 'PASS' : `FAIL (${summary.failCount} failed stages)`;
 
         list.push({
           id: 'summary-info',
@@ -307,7 +331,7 @@ export const CadTerminalPanel: React.FC<CadTerminalPanelProps> = ({
             id: `sub-fail-${idx}`,
             level: 'warn',
             category: pt.category.toUpperCase(),
-            text: `[3σ EXCURSION] ${pt.parameter} at t = ${pt.timeSec}s (Flow ${pt.flowSp || '--'} LPM, DP ${pt.dpSp || '--'} psi): Measured ${measStr} ${pt.unit} vs [ ${lowStr} ~ ${highStr} ${pt.unit} ] (Deficit: ${deltaStr} ${pt.unit})`,
+            text: `[FAILED] ${pt.parameter} at t = ${pt.timeSec}s (Flow ${pt.flowSp || '--'} LPM, DP ${pt.dpSp || '--'} psi): Measured ${measStr} ${pt.unit} vs [ ${lowStr} ~ ${highStr} ${pt.unit} ] (Deficit: ${deltaStr} ${pt.unit})`,
             parameter: pt.parameter,
             stageNum: pt.timeSec
           });
@@ -317,7 +341,7 @@ export const CadTerminalPanel: React.FC<CadTerminalPanelProps> = ({
           id: 'sub-pass-info',
           level: 'info',
           category: 'COMPLIANCE',
-          text: `All ${subChannels.length} channels in ${subLabel} measured strictly within dual ±3σ statistical envelopes across all 10 stages. Zero excursions detected.`
+          text: `All ${subChannels.length} channels in ${subLabel} measured strictly within tolerance envelopes across all 10 stages. Zero failed points detected.`
         });
       }
 
@@ -325,7 +349,7 @@ export const CadTerminalPanel: React.FC<CadTerminalPanelProps> = ({
         id: 'sub-verdict-info',
         level: subFailures.length === 0 ? 'info' : 'warn',
         category: 'VERDICT',
-        text: `Subsystem '${subLabel}' Verdict: ${subFailures.length === 0 ? 'PASS (100% compliant)' : `FAIL (${subFailures.length} excursions across ${new Set(subFailures.map(f => f.parameter)).size} channels)`} | Compliance: ${subPassRate}%.`
+        text: `Subsystem '${subLabel}' Verdict: ${subFailures.length === 0 ? 'PASS (100% compliant)' : `FAIL (${subFailures.length} violations across ${new Set(subFailures.map(f => f.parameter)).size} channels)`} | Compliance: ${subPassRate}%.`
       });
 
       return list;
@@ -387,7 +411,7 @@ export const CadTerminalPanel: React.FC<CadTerminalPanelProps> = ({
         id: `fail-${idx}`,
         level: 'warn',
         category: pt.category.toUpperCase(),
-        text: `[3σ EXCURSION] ${pt.parameter} at t = ${pt.timeSec}s (Flow ${pt.flowSp || '--'} LPM, DP ${pt.dpSp || '--'} psi): Measured ${measStr} ${pt.unit} vs [ ${lowStr} ~ ${highStr} ${pt.unit} ] (Deficit: ${deltaStr} ${pt.unit})`,
+        text: `[FAILED] ${pt.parameter} at t = ${pt.timeSec}s (Flow ${pt.flowSp || '--'} LPM, DP ${pt.dpSp || '--'} psi): Measured ${measStr} ${pt.unit} vs [ ${lowStr} ~ ${highStr} ${pt.unit} ] (Deficit: ${deltaStr} ${pt.unit})`,
         parameter: pt.parameter
       });
     });
@@ -617,7 +641,7 @@ export const CadTerminalPanel: React.FC<CadTerminalPanelProps> = ({
 
   // Filter messages based on tab, level, and search
   const filteredMessages = useMemo(() => {
-    let result = activeTab === 'modbus' ? modbusStreamEntries : messages;
+    let result = (activeTab === 'stream') ? modbusStreamEntries : messages;
 
     if (filterLevel === 'info') {
       result = result.filter(m => m.level === 'info');
@@ -640,17 +664,17 @@ export const CadTerminalPanel: React.FC<CadTerminalPanelProps> = ({
   }, [messages, modbusStreamEntries, activeTab, filterLevel, searchText]);
 
   const errorCount = useMemo(() => {
-    const list = activeTab === 'modbus' ? modbusStreamEntries : messages;
+    const list = (activeTab === 'stream') ? modbusStreamEntries : messages;
     return list.filter(m => m.level === 'error').length;
   }, [messages, modbusStreamEntries, activeTab]);
 
   const warnCount = useMemo(() => {
-    const list = activeTab === 'modbus' ? modbusStreamEntries : messages;
+    const list = (activeTab === 'stream') ? modbusStreamEntries : messages;
     return list.filter(m => m.level === 'warn').length;
   }, [messages, modbusStreamEntries, activeTab]);
 
   const infoCount = useMemo(() => {
-    const list = activeTab === 'modbus' ? modbusStreamEntries : messages;
+    const list = (activeTab === 'stream') ? modbusStreamEntries : messages;
     return list.filter(m => m.level === 'info' || m.level === 'modbus').length;
   }, [messages, modbusStreamEntries, activeTab]);
 
@@ -673,10 +697,11 @@ export const CadTerminalPanel: React.FC<CadTerminalPanelProps> = ({
     if (cmd === 'help') {
       newLogs.push('Available diagnostic commands:');
       newLogs.push('  status      - Print unit / subsystem / channel summary and compliance');
-      newLogs.push('  failed      - List failing parameters and stage excursions in active scope');
+      newLogs.push('  failed      - List failing parameters and failed points in active scope');
       newLogs.push('  subsystem   - Display or set active subsystem filter (e.g. "subsystem hydraulic", "subsystem all")');
       newLogs.push('  audit       - Re-evaluate mathematical 3-sigma tolerance envelopes');
       newLogs.push('  export      - Trigger multi-sheet Excel report generation');
+      newLogs.push('  modbus      - Open Hidden PLC Modbus Engineering Menu (Port 502)');
       newLogs.push('  clear       - Clear custom terminal history');
     } else if (cmd.startsWith('subsystem')) {
       const parts = cmd.split(/\s+/);
@@ -715,7 +740,7 @@ export const CadTerminalPanel: React.FC<CadTerminalPanelProps> = ({
       if (dataset) {
         if (selectedSensor && dataset.parameterStats[selectedSensor]) {
           const s = dataset.parameterStats[selectedSensor];
-          newLogs.push(`Test Parameter: ${selectedSensor} [${s.category.toUpperCase()}] | Unit: ${s.unit} | Verdict: ${s.failCount === 0 ? 'PASS' : `FAIL (${s.failCount} excursions)`} | Settling: ${s.settling !== null ? s.settling.toFixed(2) : '--'} ${s.unit} | Peak: ${s.peak !== null ? s.peak.toFixed(2) : '--'} ${s.unit} (Unit: ${dataset.metadata.serialNumber})`);
+          newLogs.push(`Test Parameter: ${selectedSensor} [${s.category.toUpperCase()}] | Unit: ${s.unit} | Verdict: ${s.failCount === 0 ? 'PASS' : `FAIL (${s.failCount} failed points)`} | Settling: ${s.settling !== null ? s.settling.toFixed(2) : '--'} ${s.unit} | Peak: ${s.peak !== null ? s.peak.toFixed(2) : '--'} ${s.unit} (Unit: ${dataset.metadata.serialNumber})`);
         } else if (selectedSubsystem) {
           const label = SUBSYSTEM_LABELS[selectedSubsystem];
           const subChannels = Object.entries(dataset.parameterStats).filter(([_, s]) => s.category === selectedSubsystem);
@@ -742,23 +767,23 @@ export const CadTerminalPanel: React.FC<CadTerminalPanelProps> = ({
         if (selectedSensor) {
           const failures = dataset.failures.filter(f => f.parameter === selectedSensor);
           if (failures.length > 0) {
-            newLogs.push(`Excursions for '${selectedSensor}': ${failures.length} stage points:`);
+            newLogs.push(`Failed points for '${selectedSensor}': ${failures.length} stage points:`);
             failures.forEach(f => {
               newLogs.push(`  - Stage at t = ${f.timeSec}s: Measured ${f.measured} ${f.unit} vs [${f.lowLimit?.toFixed(2)} ~ ${f.highLimit?.toFixed(2)}] (Deficit: ${f.marginBuffer?.toFixed(2)} ${f.unit})`);
             });
           } else {
-            newLogs.push(`No excursions found for '${selectedSensor}'. All stages within ±3σ limits.`);
+            newLogs.push(`No failed points found for '${selectedSensor}'. All stages within limits.`);
           }
         } else if (selectedSubsystem) {
           const label = SUBSYSTEM_LABELS[selectedSubsystem];
           const subFailures = dataset.failures.filter(f => f.category === selectedSubsystem);
           if (subFailures.length > 0) {
-            newLogs.push(`Failures in [${label}] — ${subFailures.length} excursions across ${new Set(subFailures.map(f => f.parameter)).size} channels:`);
+            newLogs.push(`Failures in [${label}] — ${subFailures.length} failed points across ${new Set(subFailures.map(f => f.parameter)).size} channels:`);
             subFailures.forEach(f => {
               newLogs.push(`  - ${f.parameter} (t=${f.timeSec}s): Measured ${f.measured} ${f.unit} vs [${f.lowLimit?.toFixed(2)} ~ ${f.highLimit?.toFixed(2)}] (Deficit: ${f.marginBuffer?.toFixed(2)} ${f.unit})`);
             });
           } else {
-            newLogs.push(`Zero excursions in [${label}]. All channels 100% compliant with ±3σ limits.`);
+            newLogs.push(`Zero failed points in [${label}]. All channels 100% compliant.`);
           }
         } else {
           newLogs.push(`Total Violations: ${dataset.failedCount} across ${dataset.failures.length} evaluation points:`);
@@ -775,6 +800,43 @@ export const CadTerminalPanel: React.FC<CadTerminalPanelProps> = ({
       } else {
         newLogs.push('No active dataset to export.');
       }
+    } else if (cmd === 'modbus' || cmd === 'registers') {
+      newLogs.push('=== PLC MODBUS HOLDING REGISTERS (PORT 502) ===');
+      newLogs.push('Summary of primary Modbus addresses (CHx2000 Architecture):');
+      newLogs.push('  Reg 0   (0x0000) Status [SYSTEM]           Unit: --   Scale: 1.0x   Type: Unsigned 16');
+      newLogs.push('  Reg 2   (0x0002) TT01 [TEMPERATURE]        Unit: °C   Scale: 0.1x   Type: Signed 16');
+      newLogs.push('  Reg 3   (0x0003) TT02 [TEMPERATURE]        Unit: °C   Scale: 0.1x   Type: Signed 16');
+      newLogs.push('  Reg 11  (0x000B) PT01 [PRESSURE]           Unit: psi  Scale: 0.1x   Type: Signed 16');
+      newLogs.push('  Reg 12  (0x000C) PT02 [PRESSURE]           Unit: psi  Scale: 0.1x   Type: Signed 16');
+      newLogs.push('  Reg 18  (0x0012) PT11 [PRESSURE]           Unit: psi  Scale: 0.1x   Type: Signed (Rollover)');
+      newLogs.push('  Reg 35  (0x0023) Secondary DP [HYDRAULIC]  Unit: psi  Scale: 0.1x   Type: Signed 16');
+      newLogs.push('  Reg 37  (0x0025) FT01 [HYDRAULIC]          Unit: LPM  Scale: 0.1x   Type: Unsigned 16');
+      newLogs.push('  Reg 39  (0x0027) P31 Speed % [PUMP]        Unit: %    Scale: 0.1x   Type: Unsigned (0-10V)');
+      newLogs.push('  Reg 40  (0x0028) P41 Speed % [PUMP]        Unit: %    Scale: 0.1x   Type: Unsigned (0-10V)');
+      newLogs.push('  Reg 200 (0x00C8) Temp SP [SETPOINT]        Unit: °C   Scale: 0.1x   Range: 21.0 - 27.0 °C');
+      newLogs.push('  Reg 201 (0x00C9) DP SP [SETPOINT]          Unit: psi  Scale: 0.1x   Range: 0.0 - 33.0 psi');
+      newLogs.push('  Reg 202 (0x00CA) Flow SP [SETPOINT]        Unit: LPM  Scale: 0.1x   Range: 0.0 - 560.0 LPM');
+      newLogs.push('TIP: Switch to the "Modbus Registers" tab above to view, search, and inspect all 52 registers.');
+      setActiveTab('registers');
+    } else if (cmd.startsWith('modbus ') || cmd.startsWith('reg ')) {
+      const targetParam = rawCmd.split(/\s+/).slice(1).join(' ').trim();
+      const num = parseInt(targetParam, 10);
+      const reg = !isNaN(num)
+        ? getRegisterByAddress(num)
+        : getRegisterByName(targetParam);
+      if (reg) {
+        newLogs.push(`=== MODBUS REGISTER: Reg ${reg.address} (0x${reg.address.toString(16).toUpperCase().padStart(4, '0')}) ===`);
+        newLogs.push(`  Channel Name:  ${reg.displayName}`);
+        newLogs.push(`  Subsystem:     ${reg.category.toUpperCase()}`);
+        newLogs.push(`  Engineering:   ${reg.description}`);
+        newLogs.push(`  Scale Factor:  ${reg.scaling === 1 ? '1.0x (raw)' : reg.scaling === 100 ? '0.01x (100 divisor)' : '0.1x (10 divisor)'}`);
+        newLogs.push(`  Unit:          ${reg.engineeringUnit || '--'}`);
+        newLogs.push(`  Data Format:   ${reg.isSigned ? "Signed 16-Bit (Two's Complement)" : "Unsigned 16-Bit Word"}`);
+        if (reg.notes) newLogs.push(`  Notes:         ${reg.notes}`);
+        onSelectSensor(reg.displayName);
+      } else {
+        newLogs.push(`No Modbus register found for '${targetParam}'. Type 'modbus' for summary or use the Modbus Registers tab.`);
+      }
     } else if (cmd === 'clear') {
       setCustomConsoleLogs([]);
       setCmdInput('');
@@ -787,9 +849,48 @@ export const CadTerminalPanel: React.FC<CadTerminalPanelProps> = ({
     setCmdInput('');
   };
 
+  // Minimized Collapsed Horizontal Strip State
+  if (isMinimized) {
+    return (
+      <section
+        className="cad-dock-panel cad-dock-minimized cad-dock-minimized-bottom"
+        title="Diagnostic Terminal (Minimized) • Click to restore"
+        onClick={onRestore || onMinimize}
+        style={style}
+      >
+        <div className="cad-dock-min-horizontal-left">
+          <TerminalIcon size={13} className="cad-dock-icon" />
+          <span className="cad-dock-min-title">TERMINAL & MESSAGES</span>
+          <span className="cad-term-chip chip-error">{errorCount} Errors</span>
+          <span className={`cad-term-chip ${warnCount > 0 ? 'chip-warn' : ''}`}>{warnCount} Warnings</span>
+          <span className="cad-term-chip chip-info">{dataset ? dataset.totalEvaluated : 0} Points</span>
+        </div>
+        <div className="cad-dock-min-actions" onClick={e => e.stopPropagation()}>
+          <button
+            type="button"
+            className="cad-dock-btn"
+            title="Restore Terminal Panel"
+            onClick={onRestore || onMinimize}
+          >
+            <Maximize2 size={12} />
+          </button>
+          <button
+            type="button"
+            className="cad-dock-btn cad-dock-btn-close"
+            title="Close Terminal Panel (Ctrl+3)"
+            onClick={onClose}
+          >
+            <X size={12} />
+          </button>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section 
       className={`cad-dock-panel cad-terminal-dock ${isExpanded ? 'expanded' : ''}`}
+      style={style}
       aria-label="Diagnostic Terminal and Messages"
     >
       {/* Terminal Title Bar & Tabs */}
@@ -803,11 +904,19 @@ export const CadTerminalPanel: React.FC<CadTerminalPanelProps> = ({
             <span>Messages</span>
           </button>
           <button 
-            className={`cad-term-tab ${activeTab === 'modbus' ? 'active' : ''}`}
-            onClick={() => setActiveTab('modbus')}
+            className={`cad-term-tab ${activeTab === 'registers' ? 'active' : ''}`}
+            onClick={() => setActiveTab('registers')}
+            style={{ color: activeTab === 'registers' ? 'var(--accent-cyan)' : undefined }}
           >
             <Cpu size={13} />
-            <span>Modbus Telemetry Stream</span>
+            <span>Modbus Registers</span>
+          </button>
+          <button 
+            className={`cad-term-tab ${activeTab === 'stream' ? 'active' : ''}`}
+            onClick={() => setActiveTab('stream')}
+          >
+            <Layers size={13} />
+            <span>Telemetry Stream</span>
           </button>
           <button 
             className={`cad-term-tab ${activeTab === 'console' ? 'active' : ''}`}
@@ -828,7 +937,7 @@ export const CadTerminalPanel: React.FC<CadTerminalPanelProps> = ({
           {selectedSensor ? (
             <>
               <span className={`cad-term-chip ${warnCount > 0 ? 'chip-warn' : 'chip-pass'}`}>
-                {warnCount} Excursions
+                {warnCount} Failed
               </span>
               <span className="cad-term-chip chip-info">
                 {messages.length} Messages
@@ -836,6 +945,25 @@ export const CadTerminalPanel: React.FC<CadTerminalPanelProps> = ({
               <span className="cad-term-chip chip-scope" title={`Filtered to test: ${selectedSensor}`}>
                 Test: {selectedSensor}
               </span>
+              {(() => {
+                const reg = getRegisterByName(selectedSensor);
+                return reg ? (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('registers')}
+                    className="cad-term-chip"
+                    style={{
+                      cursor: 'pointer',
+                      background: 'rgba(0, 210, 255, 0.12)',
+                      borderColor: 'rgba(0, 210, 255, 0.35)',
+                      color: 'var(--accent-cyan)'
+                    }}
+                    title="Click to inspect in Terminal Modbus Register Map"
+                  >
+                    Modbus: Reg {reg.address}
+                  </button>
+                ) : null;
+              })()}
               <button 
                 type="button"
                 className="cad-term-chip-btn" 
@@ -851,7 +979,7 @@ export const CadTerminalPanel: React.FC<CadTerminalPanelProps> = ({
           ) : selectedSubsystem ? (
             <>
               <span className={`cad-term-chip ${warnCount > 0 ? 'chip-warn' : 'chip-pass'}`}>
-                {warnCount} Excursions
+                {warnCount} Failed
               </span>
               <span className="cad-term-chip chip-info">
                 {filteredMessages.length} Messages
@@ -892,14 +1020,37 @@ export const CadTerminalPanel: React.FC<CadTerminalPanelProps> = ({
 
         {/* Window Controls */}
         <div className="cad-terminal-actions">
+          {onMinimize && (
+            <button
+              type="button"
+              className="cad-dock-btn"
+              title="Minimize Terminal Panel"
+              onClick={onMinimize}
+            >
+              <Minus size={12} />
+            </button>
+          )}
+          {onToggleMaximize && (
+            <button 
+              type="button"
+              className={`cad-dock-btn ${isMaximized ? 'active' : ''}`}
+              title={isMaximized ? "Restore Normal Size (Esc)" : "Full App Screen (Diagnostic Terminal)"}
+              onClick={onToggleMaximize}
+            >
+              {isMaximized ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+            </button>
+          )}
+          {!onToggleMaximize && (
+            <button 
+              className="cad-dock-btn" 
+              title={isExpanded ? 'Restore Terminal' : 'Maximize Terminal'}
+              onClick={() => setIsExpanded(!isExpanded)}
+            >
+              {isExpanded ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+            </button>
+          )}
           <button 
-            className="cad-dock-btn" 
-            title={isExpanded ? 'Restore Terminal' : 'Maximize Terminal'}
-            onClick={() => setIsExpanded(!isExpanded)}
-          >
-            {isExpanded ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
-          </button>
-          <button 
+            type="button"
             className="cad-dock-btn cad-dock-btn-close" 
             title="Close Terminal Panel (Ctrl+3)"
             onClick={onClose}
@@ -909,87 +1060,94 @@ export const CadTerminalPanel: React.FC<CadTerminalPanelProps> = ({
         </div>
       </div>
 
-      {/* Compiler Filter Bar */}
-      <div className="cad-terminal-filterbar">
-        <div className="cad-compiler-filters">
-          <span className="cad-filter-label">Filter:</span>
-          <button 
-            className={`cad-cfilter-btn ${filterLevel === 'all' ? 'active' : ''}`}
-            onClick={() => setFilterLevel('all')}
-          >
-            All ({(activeTab === 'modbus' ? modbusStreamEntries : messages).length})
-          </button>
-          <button 
-            className={`cad-cfilter-btn ${filterLevel === 'info' ? 'active' : ''}`}
-            onClick={() => setFilterLevel('info')}
-          >
-            Info ({infoCount})
-          </button>
-          <button 
-            className={`cad-cfilter-btn cad-cfilter-warn ${filterLevel === 'warn' ? 'active' : ''}`}
-            onClick={() => setFilterLevel('warn')}
-          >
-            {selectedSensor ? `Excursions (${warnCount})` : selectedSubsystem ? `Excursions (${warnCount})` : `Warnings (${warnCount})`}
-          </button>
-          <button 
-            className={`cad-cfilter-btn cad-cfilter-error ${filterLevel === 'error' ? 'active' : ''}`}
-            onClick={() => setFilterLevel('error')}
-          >
-            Errors ({errorCount})
-          </button>
-        </div>
+      {/* Compiler Filter Bar (hidden in registers view) */}
+      {activeTab !== 'registers' && (
+        <div className="cad-terminal-filterbar">
+          <div className="cad-compiler-filters">
+            <span className="cad-filter-label">Filter:</span>
+            <button 
+              className={`cad-cfilter-btn ${filterLevel === 'all' ? 'active' : ''}`}
+              onClick={() => setFilterLevel('all')}
+            >
+              All ({(activeTab === 'stream' ? modbusStreamEntries : messages).length})
+            </button>
+            <button 
+              className={`cad-cfilter-btn ${filterLevel === 'info' ? 'active' : ''}`}
+              onClick={() => setFilterLevel('info')}
+            >
+              Info ({infoCount})
+            </button>
+            <button 
+              className={`cad-cfilter-btn cad-cfilter-warn ${filterLevel === 'warn' ? 'active' : ''}`}
+              onClick={() => setFilterLevel('warn')}
+            >
+              {selectedSensor ? `Failed (${warnCount})` : selectedSubsystem ? `Failed (${warnCount})` : `Warnings (${warnCount})`}
+            </button>
+            <button 
+              className={`cad-cfilter-btn cad-cfilter-error ${filterLevel === 'error' ? 'active' : ''}`}
+              onClick={() => setFilterLevel('error')}
+            >
+              Errors ({errorCount})
+            </button>
+          </div>
 
-        <div className="cad-terminal-search-wrap">
-          <Search size={11} className="cad-tsearch-icon" />
-          <input
-            type="text"
-            className="cad-terminal-search"
-            placeholder="Filter Output (PT11, DP, 3σ)..."
-            value={searchText}
-            onChange={(e) => setSearchText(e.target.value)}
-          />
-          {searchText && (
-            <button className="cad-tsearch-clear" onClick={() => setSearchText('')}>✕</button>
-          )}
-        </div>
+          <div className="cad-terminal-search-wrap">
+            <Search size={11} className="cad-tsearch-icon" />
+            <input
+              type="text"
+              className="cad-terminal-search"
+              placeholder="Filter Output (PT11, DP, 3σ)..."
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+            />
+            {searchText && (
+              <button className="cad-tsearch-clear" onClick={() => setSearchText('')}>✕</button>
+            )}
+          </div>
 
-        <div className="cad-terminal-tool-btns">
-          <button 
-            className="cad-ttool-btn" 
-            onClick={handleCopyLogs}
-            title="Copy Terminal Messages to Clipboard"
-          >
-            <Copy size={12} />
-            <span>{copied ? 'Copied!' : 'Copy'}</span>
-          </button>
-          {dataset && (
+          <div className="cad-terminal-tool-btns">
             <button 
               className="cad-ttool-btn" 
-              onClick={onRunAudit}
-              title="Re-run Diagnostics"
+              onClick={handleCopyLogs}
+              title="Copy Terminal Messages to Clipboard"
             >
-              <RefreshCw size={12} />
-              <span>Re-run</span>
+              <Copy size={12} />
+              <span>{copied ? 'Copied!' : 'Copy'}</span>
             </button>
-          )}
-          <button 
-            className="cad-ttool-btn" 
-            onClick={() => {
-              setSearchText('');
-              setFilterLevel('all');
-              setCustomConsoleLogs([]);
-            }}
-            title="Clear Filter / Logs"
-          >
-            <Trash2 size={12} />
-            <span>Clear</span>
-          </button>
+            {dataset && (
+              <button 
+                className="cad-ttool-btn" 
+                onClick={onRunAudit}
+                title="Re-run Diagnostics"
+              >
+                <RefreshCw size={12} />
+                <span>Re-run</span>
+              </button>
+            )}
+            <button 
+              className="cad-ttool-btn" 
+              onClick={() => {
+                setSearchText('');
+                setFilterLevel('all');
+                setCustomConsoleLogs([]);
+              }}
+              title="Clear Filter / Logs"
+            >
+              <Trash2 size={12} />
+              <span>Clear</span>
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Terminal Log Output Body */}
       <div className="cad-terminal-body" ref={logScrollRef}>
-        {activeTab === 'raw' ? (
+        {activeTab === 'registers' ? (
+          <CadTerminalModbusTable
+            selectedSensor={selectedSensor}
+            onSelectSensor={onSelectSensor}
+          />
+        ) : activeTab === 'raw' ? (
           <div className="cad-raw-log-view font-mono">
             {dataset ? (
               selectedSensor && dataset.parameterStats[selectedSensor] ? (
@@ -997,7 +1155,7 @@ export const CadTerminalPanel: React.FC<CadTerminalPanelProps> = ({
                   <div className="cad-raw-line">Channel Test: {selectedSensor} ({dataset.parameterStats[selectedSensor].category.toUpperCase()})</div>
                   <div className="cad-raw-line text-cyan">Unit: {dataset.parameterStats[selectedSensor].unit} | Process Mean μ: {dataset.parameterStats[selectedSensor].nominalMean !== null ? `${dataset.parameterStats[selectedSensor].nominalMean.toFixed(2)} ${dataset.parameterStats[selectedSensor].unit}` : '--'} | 3σ Span: ±{dataset.parameterStats[selectedSensor].threeSigmaSpan !== null ? `${dataset.parameterStats[selectedSensor].threeSigmaSpan.toFixed(2)} ${dataset.parameterStats[selectedSensor].unit}` : '--'}</div>
                   <div className={`cad-raw-line ${dataset.parameterStats[selectedSensor].failCount > 0 ? 'text-yellow' : 'text-green'}`}>
-                    Excursions across 10 stages: {dataset.parameterStats[selectedSensor].failCount} out-of-tolerance
+                    Failed points across 10 stages: {dataset.parameterStats[selectedSensor].failCount} failed
                   </div>
                   <div className="cad-raw-line">
                     Settling (525s): {dataset.parameterStats[selectedSensor].settling !== null ? `${dataset.parameterStats[selectedSensor].settling.toFixed(2)} ${dataset.parameterStats[selectedSensor].unit}` : '--'} | Peak: {dataset.parameterStats[selectedSensor].peak !== null ? `${dataset.parameterStats[selectedSensor].peak.toFixed(2)} ${dataset.parameterStats[selectedSensor].unit}` : '--'} | Min: {dataset.parameterStats[selectedSensor].min !== null ? `${dataset.parameterStats[selectedSensor].min.toFixed(2)} ${dataset.parameterStats[selectedSensor].unit}` : '--'}
@@ -1013,7 +1171,7 @@ export const CadTerminalPanel: React.FC<CadTerminalPanelProps> = ({
                     Active channels: {Object.entries(dataset.parameterStats).filter(([_, s]) => s.category === selectedSubsystem).map(([n]) => n).join(', ')}
                   </div>
                   <div className="cad-raw-line text-yellow">
-                    Subsystem excursions: {dataset.failures.filter(f => f.category === selectedSubsystem).length} points out-of-tolerance
+                    Subsystem failed points: {dataset.failures.filter(f => f.category === selectedSubsystem).length} points
                   </div>
                   <div className="cad-raw-line text-green">
                     Subsystem verdict: {dataset.failures.filter(f => f.category === selectedSubsystem).length === 0 ? 'PASS (100% compliant)' : 'FAIL (requires rework / physical inspection)'}
@@ -1023,7 +1181,7 @@ export const CadTerminalPanel: React.FC<CadTerminalPanelProps> = ({
                 <>
                   <div className="cad-raw-line">Diagnostic pipeline active for {dataset.metadata.serialNumber} ({dataset.metadata.workOrderNumber})</div>
                   <div className="cad-raw-line text-cyan">Evaluated {dataset.totalEvaluated} data points across {Object.keys(dataset.parameterStats).length} channels</div>
-                  <div className="cad-raw-line text-yellow">Total out-of-tolerance excursions: {dataset.failedCount}</div>
+                  <div className="cad-raw-line text-yellow">Total failed points: {dataset.failedCount}</div>
                   <div className="cad-raw-line text-green">Final compliance rate: {dataset.passRate}% ({dataset.metadata.finalResult})</div>
                 </>
               )
@@ -1086,6 +1244,7 @@ export const CadTerminalPanel: React.FC<CadTerminalPanelProps> = ({
         />
         <div className="cad-prompt-quick-tags">
           <button type="button" className="cad-qtag" onClick={() => setCmdInput('status')}>status</button>
+          <button type="button" className="cad-qtag" onClick={() => setCmdInput('modbus')}>modbus</button>
           <button type="button" className="cad-qtag" onClick={() => setCmdInput('failed')}>failed</button>
           <button type="button" className="cad-qtag" onClick={() => setCmdInput('subsystem')}>subsystem</button>
           <button type="button" className="cad-qtag" onClick={() => setCmdInput('audit')}>audit</button>

@@ -121,7 +121,7 @@ function createFaultResult(
     worstDeviationStr: worst ? `+${worst.deviation} ${worst.unit} @ t=${worst.timeSec}s` : null,
     breaches,
     summary: isTriggered 
-      ? `${failureSummary} (${breaches.length} stage step excursions observed)`
+      ? `${failureSummary} (${breaches.length} out-of-spec stage steps observed)`
       : 'Within allowable flow balance & PQ tolerance limits.'
   };
 }
