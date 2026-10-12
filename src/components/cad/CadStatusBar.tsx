@@ -110,8 +110,7 @@ export const CadStatusBar: React.FC<CadStatusBarProps> = ({
           <span className="cad-slabel">View:</span>
           <span className="cad-sval text-cyan font-bold">
             {activeView === 'datasheet' && 'Data Sheet & Verification Matrix'}
-            {activeView === 'telemetry' && (selectedSensor ? `Telemetry Scope [${selectedSensor}]` : 'Telemetry Oscilloscope')}
-            {activeView === 'dynamics' && 'System Dynamics & Coupling'}
+            {activeView === 'telemetry' && (selectedSensor ? `Telemetry Scope [${selectedSensor}]` : 'Telemetry & Closed-Loop Dynamics')}
             {activeView === 'diagnostics' && 'Diagnostics & Directives'}
           </span>
         </div>

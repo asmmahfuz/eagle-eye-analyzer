@@ -6,7 +6,6 @@ import { SubsystemCategory, SUBSYSTEM_LABELS } from '../../../types';
 import {
   AlertTriangle,
   CheckCircle2,
-  Filter,
   Search,
   ShieldAlert,
   Layers
@@ -27,10 +26,12 @@ export const CanonicalFaultsSection: React.FC<CanonicalFaultsSectionProps> = ({
   onSelectSensor,
   onSelectSubsystem
 }) => {
-  const [filterMode, setFilterMode] = useState<'all' | 'triggered' | 'subsystem'>('all');
-  const [searchQuery, setSearchQuery] = useState('');
-
   const stats = useMemo(() => getFaultOverviewStats(faultResults), [faultResults]);
+  // Default to showing only triggered faults if any exist, collapsing passing rules
+  const [filterMode, setFilterMode] = useState<'all' | 'triggered' | 'subsystem'>(
+    stats.triggered > 0 ? 'triggered' : 'all'
+  );
+  const [searchQuery, setSearchQuery] = useState('');
 
   const filteredFaults = useMemo(() => {
     let list = [...faultResults];
@@ -64,7 +65,7 @@ export const CanonicalFaultsSection: React.FC<CanonicalFaultsSectionProps> = ({
 
   return (
     <div className="cad-canonical-faults-section">
-      {/* Section Header & KPI Summary */}
+      {/* Section Header & Progressive Disclosure Summary Bar */}
       <div className="canonical-faults-header-bar">
         <div className="header-title-group">
           <ShieldAlert size={16} className={stats.triggered > 0 ? "text-rose-400" : "text-emerald-400"} />
@@ -72,7 +73,7 @@ export const CanonicalFaultsSection: React.FC<CanonicalFaultsSectionProps> = ({
             Canonical 20-Fault Diagnostics Registry
           </span>
           <span className="canonical-subtitle">
-            CoolIT™ CHx2000 Golden Specification Checks
+            CoolIT™ CHx2000 Baseline Checks
           </span>
         </div>
 
@@ -97,26 +98,31 @@ export const CanonicalFaultsSection: React.FC<CanonicalFaultsSectionProps> = ({
               {stats.warnings} 3σ Warnings
             </span>
           )}
+          <span style={{ fontSize: '10px', color: 'var(--text-dim)', fontStyle: 'italic', marginLeft: '4px' }}>
+            (Diagnostics under calibration)
+          </span>
         </div>
       </div>
 
-      {/* Control Strip: Filters & Search */}
+      {/* Control Strip: Progressive Disclosure Filters & Search */}
       <div className="canonical-filter-toolbar">
         <div className="filter-button-group">
+          {stats.triggered > 0 && (
+            <button
+              type="button"
+              className={`filter-tab-btn ${filterMode === 'triggered' ? 'active' : ''}`}
+              onClick={() => setFilterMode('triggered')}
+            >
+              <AlertTriangle size={11} />
+              <span>Triggered Non-Conformances ({stats.triggered + stats.warnings})</span>
+            </button>
+          )}
           <button
             type="button"
             className={`filter-tab-btn ${filterMode === 'all' && !selectedSensor ? 'active' : ''}`}
             onClick={() => setFilterMode('all')}
           >
-            All 20 Faults ({faultResults.length})
-          </button>
-          <button
-            type="button"
-            className={`filter-tab-btn ${filterMode === 'triggered' ? 'active' : ''}`}
-            onClick={() => setFilterMode('triggered')}
-          >
-            <AlertTriangle size={11} />
-            <span>Triggered & Warnings ({stats.triggered + stats.warnings})</span>
+            {stats.triggered > 0 ? `Show All 20 Rules (${faultResults.length}) ▾` : `All 20 Rules (${faultResults.length})`}
           </button>
           {selectedSubsystem && (
             <button
@@ -134,7 +140,7 @@ export const CanonicalFaultsSection: React.FC<CanonicalFaultsSectionProps> = ({
           <Search size={12} className="search-icon" />
           <input
             type="text"
-            placeholder="Search fault code, parameter, or directive..."
+            placeholder="Search fault code or channel..."
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             className="fault-search-input"
@@ -142,12 +148,19 @@ export const CanonicalFaultsSection: React.FC<CanonicalFaultsSectionProps> = ({
         </div>
       </div>
 
-      {/* Cards List */}
+      {/* Progressive Disclosure Cards List */}
       <div className="canonical-cards-container">
         {filteredFaults.length === 0 ? (
           <div className="no-faults-matching-box">
             <CheckCircle2 size={20} className="text-emerald-400" />
-            <p>No fault codes matching the current filter criteria.</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+              <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>
+                All 20 Canonical Fault Rules Verified In-Spec
+              </span>
+              <span style={{ color: 'var(--text-dim)', fontSize: '10.5px' }}>
+                Zero non-conformances triggered. Click "Show All 20 Rules" above to audit individual pass thresholds.
+              </span>
+            </div>
           </div>
         ) : (
           filteredFaults.map(fault => (

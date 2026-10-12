@@ -4,12 +4,10 @@ import { CadEmptyWorkspace } from './CadEmptyWorkspace';
 import { UnitDataSheet, GroupDataSheet, TestDataSheet } from '../views/data';
 import { UnitTelemetry, GroupTelemetry, TestTelemetry } from '../views/telemetry';
 import { UnitDiagnostics, GroupDiagnostics, TestDiagnostics } from '../views/diagnostic';
-import { SystemDynamics } from '../views/dynamics';
 import {
   Layers,
   BarChart2,
   Activity,
-  Sliders,
   ShieldAlert,
   Minus,
   Maximize2,
@@ -180,31 +178,22 @@ export const CadTabbedCanvas: React.FC<CadTabbedCanvasProps> = ({
     if (scope === 'group') {
       return `${subName} Subsystem Multi-Channel Telemetry Waveform Overlay`;
     }
-    return 'Whole-Unit Operational Telemetry & System Excitation Multi-Curve';
+    return 'Whole-Unit Closed-Loop Dynamics Cockpit & Telemetry Oscilloscope';
   }, [scope, validSensor, subName]);
 
-  // Scope-aware Tab 3 (System Dynamics) Badge & Title
-  const dynamicsBadge = useMemo(() => {
-    const stageCount = dataset?.stages.length ?? 0;
-    return { text: `${stageCount} stg`, status: 'neutral' };
-  }, [dataset?.stages.length]);
-
-  const dynamicsTitle = 'System Dynamics & Stage Coupling — Closed-Loop Hydraulic & Actuator Cockpit';
-
-  // Scope-aware Tab 4 (Diagnostics & Rework) Badge & Title
+  // Scope-aware Tab 3 Diagnostics Badge & Title
   const diagnosticsBadge = useMemo(() => {
-    const count = displayFailures.length;
-    return { text: `${count}`, status: count > 0 ? 'fail' : 'pass' };
-  }, [displayFailures.length]);
+    return { text: 'In Dev', status: 'neutral' };
+  }, []);
 
   const diagnosticsTitle = useMemo(() => {
     if (scope === 'test' && validSensor) {
-      return `${validSensor} Diagnostics & Rework Directives — Breach Ledger`;
+      return `${validSensor} Diagnostics (In Development)`;
     }
     if (scope === 'group') {
-      return `${subName} Diagnostics & Rework Directives — Subsystem Deficit Log`;
+      return `${subName} Diagnostics (In Development)`;
     }
-    return 'Diagnostics & Rework Directives — Root Cause Verdict & Shopfloor Directives';
+    return 'Automated Diagnostics (In Development)';
   }, [scope, validSensor, subName]);
 
   // Minimized Collapsed State
@@ -222,7 +211,6 @@ export const CadTabbedCanvas: React.FC<CadTabbedCanvasProps> = ({
           <span className="cad-scope-pill unit">
             {activeView === 'datasheet' && 'Data Sheet'}
             {activeView === 'telemetry' && 'Telemetry'}
-            {activeView === 'dynamics' && 'Dynamics'}
             {activeView === 'diagnostics' && 'Diagnostics'}
           </span>
         </div>
@@ -352,20 +340,7 @@ export const CadTabbedCanvas: React.FC<CadTabbedCanvasProps> = ({
             </span>
           </button>
 
-          {/* Tab 3: System Dynamics */}
-          <button
-            className={`cad-ctab ${activeView === 'dynamics' ? 'active' : ''}`}
-            onClick={() => onSelectView('dynamics')}
-            title={dynamicsTitle}
-          >
-            <Sliders size={13} />
-            <span>Dynamics</span>
-            <span className={`cad-tab-badge-count ${dynamicsBadge.status}`}>
-              {dynamicsBadge.text}
-            </span>
-          </button>
-
-          {/* Tab 4: Diagnostics */}
+          {/* Tab 3: Diagnostics */}
           <button
             className={`cad-ctab ${activeView === 'diagnostics' ? 'active' : ''}`}
             onClick={() => onSelectView('diagnostics')}
@@ -458,25 +433,12 @@ export const CadTabbedCanvas: React.FC<CadTabbedCanvasProps> = ({
                     : 'PASS')}
             </span>
           )}
-          {activeView === 'dynamics' && (
-            <span className="cad-sheet-status-tag pass" title="Closed-Loop Dynamics (10 Stages)">
-              DYNAMICS ({dataset.stages.length} STG)
-            </span>
-          )}
           {activeView === 'diagnostics' && (
             <span
-              className={`cad-sheet-status-tag ${displayFailures.length > 0 ? 'fail' : 'pass'}`}
-              title={
-                scope === 'test' && validSensor
-                  ? (displayFailures.length > 0 ? `${validSensor}: ${displayFailures.length} Deficits` : `${validSensor}: 100% Quality Acceptance`)
-                  : scope === 'group'
-                  ? (displayFailures.length > 0 ? `${displayFailures.length} ${subName} Deficits` : `${subName}: 100% Quality Acceptance`)
-                  : ((dataset.failedCount ?? 0) > 0
-                      ? `${dataset.failedCount} Failed Points`
-                      : '100% Quality Acceptance')
-              }
+              className="cad-sheet-status-tag neutral"
+              title="Automated Diagnostics (In Development)"
             >
-              {displayFailures.length > 0 ? `FAIL (${displayFailures.length})` : '100% PASS'}
+              IN DEVELOPMENT
             </span>
           )}
 
@@ -571,6 +533,7 @@ export const CadTabbedCanvas: React.FC<CadTabbedCanvasProps> = ({
             ) : (
               <UnitTelemetry
                 dataset={dataset}
+                selectedSensor={selectedSensor}
                 onSelectSensor={handleSelectSensor}
                 onSelectSubsystem={handleSelectSubsystem}
               />
@@ -578,18 +541,7 @@ export const CadTabbedCanvas: React.FC<CadTabbedCanvasProps> = ({
           </div>
         )}
 
-        {/* Route 3: System Dynamics & Stage Coupling */}
-        {activeView === 'dynamics' && (
-          <div className="cad-overview-wrapper">
-            <SystemDynamics
-              dataset={dataset}
-              selectedSensor={selectedSensor}
-              onSelectSensor={onSelectSensor}
-            />
-          </div>
-        )}
-
-        {/* Route 4: Diagnostics & Rework Directives (Modular 3-Tier Scope Dispatcher) */}
+        {/* Route 3: Diagnostics & Rework Directives (Modular 3-Tier Scope Dispatcher) */}
         {activeView === 'diagnostics' && (
           <div className="cad-overview-wrapper">
             {scope === 'test' && validSensor ? (

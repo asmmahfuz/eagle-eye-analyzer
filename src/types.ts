@@ -29,7 +29,6 @@ export type SubsystemCategory =
 export type CadMainView = 
   | 'datasheet' 
   | 'telemetry' 
-  | 'dynamics' 
   | 'diagnostics';
 
 export type ScopeTier = 

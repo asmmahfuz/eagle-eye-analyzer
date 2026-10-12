@@ -108,6 +108,18 @@ export const StimulusResponseChart: React.FC<StimulusResponseChartProps> = ({
     const suctionData = measurements.map(m => getMetric(m, 'PT21', 'PT_21'));
     const tempData = measurements.map(m => getMetric(m, 'TT31', 'TT41', 'TT45'));
 
+    // Dynamic Pressure Scale Headroom calculation (avoids clipping PT32 discharge pressure)
+    const allPressureValues = [
+      ...dpSpData,
+      ...dischargeData,
+      ...suctionData
+    ].filter((v): v is number => typeof v === 'number' && !isNaN(v));
+
+    const maxPressure = allPressureValues.length > 0 ? Math.max(...allPressureValues) : 60;
+    // Generous 18% headroom rounded up to next 5 psi (minimum 75 psi) ensures the discharge curve
+    // and stage dwell badges (S1..S10) have ample breathing room and are never clipped at the top
+    const pressureCeiling = Math.max(75, Math.ceil((maxPressure * 1.18) / 5) * 5);
+
     const gridColor = isDark ? 'rgba(255, 255, 255, 0.07)' : 'rgba(0, 0, 0, 0.06)';
     const textColor = isDark ? '#94a3b8' : '#64748b';
 
@@ -194,6 +206,14 @@ export const StimulusResponseChart: React.FC<StimulusResponseChartProps> = ({
         maintainAspectRatio: false,
         animation: { duration: 350 },
         interaction: { mode: 'index', intersect: false },
+        layout: {
+          padding: {
+            top: 24,
+            bottom: 6,
+            left: 4,
+            right: 8
+          }
+        },
         plugins: {
           legend: { display: false },
           tooltip: {
@@ -218,7 +238,7 @@ export const StimulusResponseChart: React.FC<StimulusResponseChartProps> = ({
             grid: { color: gridColor },
             ticks: { color: textColor, font: { family: 'JetBrains Mono', size: 10 } },
             min: 0,
-            max: 55
+            max: pressureCeiling
           },
           ySpeed: {
             type: 'linear',
@@ -227,7 +247,7 @@ export const StimulusResponseChart: React.FC<StimulusResponseChartProps> = ({
             grid: { drawOnChartArea: false },
             ticks: { color: '#0284c7', font: { family: 'JetBrains Mono', size: 9.5 } },
             min: 0,
-            max: 100
+            max: 105
           },
           yFlow: {
             type: 'linear',
@@ -326,7 +346,7 @@ export const StimulusResponseChart: React.FC<StimulusResponseChartProps> = ({
       </div>
 
       {/* Chart Canvas Area */}
-      <div className="cad-dynamics-chart-viewport" style={{ height: '320px', position: 'relative' }}>
+      <div className="cad-dynamics-chart-viewport" style={{ height: '420px', position: 'relative' }}>
         <canvas ref={chartCanvasRef} />
       </div>
     </div>

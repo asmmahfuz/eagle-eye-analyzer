@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { EagleEyeDataset } from '../../../types';
 import { StageDynamicsMetrics, formatDelta } from './dynamicsTypes';
 import {
@@ -29,7 +29,6 @@ export const CduFlowSchematic: React.FC<CduFlowSchematicProps> = ({
 }) => {
   const [isPowerOn, setIsPowerOn] = useState<boolean>(true);
   const [animateFlow, setAnimateFlow] = useState<boolean>(true);
-  const [viewMode, setViewMode] = useState<'hmi' | 'cards'>('hmi');
 
   // React to application-wide data-theme changes (Light vs Dark)
   const [currentTheme, setCurrentTheme] = useState<string>(() => {
@@ -68,6 +67,7 @@ export const CduFlowSchematic: React.FC<CduFlowSchematicProps> = ({
     textMuted: isDark ? '#94a3b8' : '#64748b',
     textAccentPri: isDark ? '#38bdf8' : '#0284c7',
     textAccentSec: isDark ? '#22d3ee' : '#0891b2',
+    textFail: isDark ? '#f87171' : '#dc2626',
     pheShellStroke: isDark ? '#475569' : '#94a3b8',
     pheBadgeFill: isDark ? '#1e293b' : '#f1f5f9',
     pheBadgeStroke: isDark ? '#334155' : '#cbd5e1',
@@ -89,6 +89,63 @@ export const CduFlowSchematic: React.FC<CduFlowSchematicProps> = ({
     tableActualVal: isDark ? '#ffffff' : '#0f172a',
     tableSetpointVal: isDark ? '#cbd5e1' : '#334155',
     tableNaVal: isDark ? '#64748b' : '#94a3b8',
+  };
+
+  // Set of failed sensors for the active stage
+  const stageFailedSensors = useMemo(() => {
+    const failedSet = new Set<string>();
+    if (!dataset) return failedSet;
+
+    // 1. Check dataset.stages for the active stage
+    const currentStage = dataset.stages?.find(
+      s => s.stageNum === metrics.stageNum || s.timeSec === metrics.timeSec
+    );
+    if (currentStage?.failedSensors) {
+      currentStage.failedSensors.forEach(s => {
+        if (s) failedSet.add(s.trim());
+      });
+    }
+
+    // 2. Check dataset.failures for evaluated failure points at this stage timestamp
+    if (dataset.failures) {
+      dataset.failures.forEach(f => {
+        if (f.timeSec === metrics.timeSec && (f.status === 'fail' || !f.isPass)) {
+          if (f.parameter) failedSet.add(f.parameter.trim());
+        }
+      });
+    }
+
+    return failedSet;
+  }, [dataset, metrics.stageNum, metrics.timeSec]);
+
+  // Helper to test if any candidate sensor key failed in this stage
+  const isSensorFailed = (...keys: string[]): boolean => {
+    if (stageFailedSensors.size === 0) return false;
+
+    const normalize = (str: string) => str.toLowerCase().replace(/[\s_\-/%]/g, '');
+
+    for (const key of keys) {
+      if (stageFailedSensors.has(key)) return true;
+
+      const normKey = normalize(key);
+      for (const failed of stageFailedSensors) {
+        if (failed === key) return true;
+        const normFailed = normalize(failed);
+        if (normKey === normFailed) return true;
+
+        // If failed sensor is a compound (e.g. 'PT32/PT42' or 'TT31/TT41')
+        if (failed.includes('/') || failed.includes(',')) {
+          const parts = failed.split(/[/,]/).map(p => normalize(p));
+          if (parts.includes(normKey)) return true;
+        }
+        // If key is a compound
+        if (key.includes('/') || key.includes(',')) {
+          const parts = key.split(/[/,]/).map(p => normalize(p));
+          if (parts.includes(normFailed)) return true;
+        }
+      }
+    }
+    return false;
   };
 
   const handleNodeClick = (sensor: string) => {
@@ -119,9 +176,9 @@ export const CduFlowSchematic: React.FC<CduFlowSchematicProps> = ({
 
   // Ambient & Unit ID
   const unitId = dataset?.metadata?.serialNumber || 'CD050L';
-  const ambientT = 21.3;
-  const ambientRh = 44.2;
-  const dewpoint = 8.6;
+  const ambientT = metrics.ambientT && metrics.ambientT > 0 ? metrics.ambientT : 21.3;
+  const ambientRh = metrics.ambientRh && metrics.ambientRh > 0 ? metrics.ambientRh : 44.2;
+  const dewpoint = metrics.dewpoint ?? 8.6;
 
   return (
     <div className="cad-schematic-wrapper">
@@ -149,22 +206,6 @@ export const CduFlowSchematic: React.FC<CduFlowSchematicProps> = ({
           <div className="cad-hmi-view-toggles">
             <button
               type="button"
-              className={`cad-hmi-mode-btn ${viewMode === 'hmi' ? 'active' : ''}`}
-              onClick={() => setViewMode('hmi')}
-              title="Official CoolIT Systems Touchscreen P&ID Mimic"
-            >
-              HMI Touchscreen
-            </button>
-            <button
-              type="button"
-              className={`cad-hmi-mode-btn ${viewMode === 'cards' ? 'active' : ''}`}
-              onClick={() => setViewMode('cards')}
-              title="Detailed Metrology Cards"
-            >
-              Metric Cards
-            </button>
-            <button
-              type="button"
               className={`cad-hmi-flow-toggle ${animateFlow ? 'active' : ''}`}
               onClick={() => setAnimateFlow(!animateFlow)}
               title={animateFlow ? "Pause Fluid & Pump Animation" : "Resume Fluid & Pump Animation"}
@@ -175,9 +216,8 @@ export const CduFlowSchematic: React.FC<CduFlowSchematicProps> = ({
         </div>
       </div>
 
-      {/* Main Touchscreen HMI Recreation */}
-      {viewMode === 'hmi' && (
-        <div className="coolit-hmi-enclosure">
+      {/* Main CoolIT CDU Flow Mimic Schematic */}
+      <div className="coolit-hmi-enclosure">
           <div className="coolit-hmi-screen">
             {/* 1. Touchscreen Top Navigation Bar */}
             <div className="coolit-hmi-topbar">
@@ -233,7 +273,11 @@ export const CduFlowSchematic: React.FC<CduFlowSchematicProps> = ({
                     <stop offset="0%" stopColor="#22d3ee" />
                     <stop offset="100%" stopColor="#06b6d4" />
                   </linearGradient>
-                  <linearGradient id="coolit-tank-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+                  <linearGradient id="coolit-tank-grad-normal" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" stopColor={isDark ? "#0284c7" : "#38bdf8"} />
+                    <stop offset="100%" stopColor={isDark ? "#0369a1" : "#0284c7"} />
+                  </linearGradient>
+                  <linearGradient id="coolit-tank-grad-fail" x1="0%" y1="0%" x2="0%" y2="100%">
                     <stop offset="0%" stopColor="#ef4444" />
                     <stop offset="100%" stopColor="#b91c1c" />
                   </linearGradient>
@@ -420,32 +464,33 @@ export const CduFlowSchematic: React.FC<CduFlowSchematicProps> = ({
                     <text x="455" y="184" className="cdu-svg-text font-mono" fill={c.valveText} fontSize="11" fontWeight="600">P11: OFF</text>
                   </g>
 
-                  {/* Tank Body (Red/Orange fill in photo) */}
+                  {/* Tank Body (Red when PT11 fails or pressure deficit, Coolant Blue/Cyan when passed) */}
                   <rect
                     x="410" y="215" width="60" height="85" rx="3"
-                    fill="url(#coolit-tank-grad)"
-                    stroke={isDark ? "#f87171" : "#ef4444"} strokeWidth="2.5"
+                    fill={isSensorFailed('PT11', 'PT_11', 'Reservoir Pressure') ? "url(#coolit-tank-grad-fail)" : "url(#coolit-tank-grad-normal)"}
+                    stroke={isSensorFailed('PT11', 'PT_11', 'Reservoir Pressure') ? (isDark ? "#f87171" : "#ef4444") : (isDark ? "#38bdf8" : "#0284c7")}
+                    strokeWidth="2.5"
                     className="coolit-tank-vessel"
                   />
                   <text
                     x="440" y="262"
                     textAnchor="middle"
-                    className="cdu-svg-text"
+                    className="cdu-svg-text font-mono"
                     fill="#ffffff"
                     fontSize="13"
                     fontWeight="700"
                   >
-                    {metrics.reservoirPressure > 10 ? 'Normal' : 'Empty'}
+                    {isSensorFailed('PT11', 'PT_11', 'Reservoir Pressure') ? 'Fault' : 'Normal'}
                   </text>
 
                   {/* PT11 Callout */}
                   <g
-                    className={`coolit-sensor-callout ${selectedSensor === 'PT11' ? 'selected' : ''}`}
+                    className={`coolit-sensor-callout ${isSensorFailed('PT11', 'PT_11') ? 'sensor-failed' : ''} ${selectedSensor === 'PT11' ? 'selected' : ''}`}
                     onClick={() => handleNodeClick('PT11')}
                     cursor="pointer"
                   >
-                    <text x="360" y="322" className="cdu-svg-text font-mono" fill={c.textMuted} fontSize="11">PT11:</text>
-                    <text x="398" y="322" className="cdu-svg-text font-mono font-bold" fill={c.textMain} fontSize="11.5">
+                    <text x="360" y="322" className="cdu-svg-text font-mono" fill={isSensorFailed('PT11', 'PT_11') ? c.textFail : c.textMuted} fontSize="11">PT11:</text>
+                    <text x="398" y="322" className={`cdu-svg-text font-mono font-bold ${isSensorFailed('PT11', 'PT_11') ? 'cdu-val-failed' : ''}`} fill={isSensorFailed('PT11', 'PT_11') ? c.textFail : c.textMain} fontSize="11.5">
                       {metrics.reservoirPressure.toFixed(1)} psi
                     </text>
                   </g>
@@ -495,8 +540,8 @@ export const CduFlowSchematic: React.FC<CduFlowSchematicProps> = ({
 
                   {/* P41 Label */}
                   <text x="0" y="-22" textAnchor="middle" className="cdu-svg-text font-mono">
-                    <tspan fill={c.textMuted} fontSize="11">P41: </tspan>
-                    <tspan fill={c.textMain} fontSize="12" fontWeight="bold">{p41Speed.toFixed(2)} %</tspan>
+                    <tspan fill={isSensorFailed('P41', 'P41 Speed %', 'P41_Speed') ? c.textFail : c.textMuted} fontSize="11">P41: </tspan>
+                    <tspan fill={isSensorFailed('P41', 'P41 Speed %', 'P41_Speed') ? c.textFail : c.textMain} className={isSensorFailed('P41', 'P41 Speed %', 'P41_Speed') ? 'cdu-val-failed' : ''} fontSize="12" fontWeight="bold">{p41Speed.toFixed(2)} %</tspan>
                   </text>
                 </g>
 
@@ -529,8 +574,8 @@ export const CduFlowSchematic: React.FC<CduFlowSchematicProps> = ({
 
                   {/* P31 Label */}
                   <text x="0" y="-22" textAnchor="middle" className="cdu-svg-text font-mono">
-                    <tspan fill={c.textMuted} fontSize="11">P31: </tspan>
-                    <tspan fill={c.textMain} fontSize="12" fontWeight="bold">{p31Speed.toFixed(2)} %</tspan>
+                    <tspan fill={isSensorFailed('P31', 'P31 Speed %', 'P31_Speed') ? c.textFail : c.textMuted} fontSize="11">P31: </tspan>
+                    <tspan fill={isSensorFailed('P31', 'P31 Speed %', 'P31_Speed') ? c.textFail : c.textMain} className={isSensorFailed('P31', 'P31 Speed %', 'P31_Speed') ? 'cdu-val-failed' : ''} fontSize="12" fontWeight="bold">{p31Speed.toFixed(2)} %</tspan>
                   </text>
                 </g>
 
@@ -553,8 +598,8 @@ export const CduFlowSchematic: React.FC<CduFlowSchematicProps> = ({
                   <text x="0" y="-18" textAnchor="middle" className="cdu-svg-text font-mono font-bold" fill={c.textAccentPri} fontSize="9.5">M</text>
 
                   {/* FCV61 Status Text */}
-                  <text x="0" y="-34" textAnchor="middle" className="cdu-svg-text font-mono" fill={c.textMuted} fontSize="10">FCV61</text>
-                  <text x="0" y="24" textAnchor="middle" className="cdu-svg-text font-mono font-bold" fill={c.textAccentPri} fontSize="11">
+                  <text x="0" y="-34" textAnchor="middle" className="cdu-svg-text font-mono" fill={isSensorFailed('FCV61', 'FCV61 Actual Flow%', 'FCV61 Actual Open%') ? c.textFail : c.textMuted} fontSize="10">FCV61</text>
+                  <text x="0" y="24" textAnchor="middle" className={`cdu-svg-text font-mono font-bold ${isSensorFailed('FCV61', 'FCV61 Actual Flow%', 'FCV61 Actual Open%') ? 'cdu-val-failed' : ''}`} fill={isSensorFailed('FCV61', 'FCV61 Actual Flow%', 'FCV61 Actual Open%') ? c.textFail : c.textAccentPri} fontSize="11">
                     {metrics.modulatingValve.toFixed(0)} %
                   </text>
                 </g>
@@ -567,24 +612,24 @@ export const CduFlowSchematic: React.FC<CduFlowSchematicProps> = ({
 
                 {/* PT51/52 */}
                 <g
-                  className={`coolit-sensor-callout ${selectedSensor === 'PT51' ? 'selected' : ''}`}
+                  className={`coolit-sensor-callout ${isSensorFailed('PT51', 'PT52', 'PT51/PT52', 'PT51/52') ? 'sensor-failed' : ''} ${selectedSensor === 'PT51' ? 'selected' : ''}`}
                   onClick={() => handleNodeClick('PT51')}
                   cursor="pointer"
                 >
-                  <text x="40" y="90" className="cdu-svg-text font-mono" fill={c.textMuted} fontSize="11">PT51/52:</text>
-                  <text x="100" y="90" className="cdu-svg-text font-mono font-bold" fill={c.textMain} fontSize="11.5">
+                  <text x="40" y="90" className="cdu-svg-text font-mono" fill={isSensorFailed('PT51', 'PT52', 'PT51/PT52', 'PT51/52') ? c.textFail : c.textMuted} fontSize="11">PT51/52:</text>
+                  <text x="100" y="90" className={`cdu-svg-text font-mono font-bold ${isSensorFailed('PT51', 'PT52', 'PT51/PT52', 'PT51/52') ? 'cdu-val-failed' : ''}`} fill={isSensorFailed('PT51', 'PT52', 'PT51/PT52', 'PT51/52') ? c.textFail : c.textMain} fontSize="11.5">
                     {metrics.primarySupplyP.toFixed(1)} psi
                   </text>
                 </g>
 
                 {/* TT51/52 */}
                 <g
-                  className={`coolit-sensor-callout ${selectedSensor === 'TT51' ? 'selected' : ''}`}
+                  className={`coolit-sensor-callout ${isSensorFailed('TT51', 'TT52', 'TT51/TT52', 'TT51/52') ? 'sensor-failed' : ''} ${selectedSensor === 'TT51' ? 'selected' : ''}`}
                   onClick={() => handleNodeClick('TT51')}
                   cursor="pointer"
                 >
-                  <text x="40" y="172" className="cdu-svg-text font-mono" fill={c.textMuted} fontSize="11">TT51/52:</text>
-                  <text x="100" y="172" className="cdu-svg-text font-mono font-bold" fill={c.textMain} fontSize="11.5">
+                  <text x="40" y="172" className="cdu-svg-text font-mono" fill={isSensorFailed('TT51', 'TT52', 'TT51/TT52', 'TT51/52') ? c.textFail : c.textMuted} fontSize="11">TT51/52:</text>
+                  <text x="100" y="172" className={`cdu-svg-text font-mono font-bold ${isSensorFailed('TT51', 'TT52', 'TT51/TT52', 'TT51/52') ? 'cdu-val-failed' : ''}`} fill={isSensorFailed('TT51', 'TT52', 'TT51/TT52', 'TT51/52') ? c.textFail : c.textMain} fontSize="11.5">
                     {priSupplyT.toFixed(1)} °C
                   </text>
                 </g>
@@ -594,36 +639,36 @@ export const CduFlowSchematic: React.FC<CduFlowSchematicProps> = ({
 
                 {/* PT61/62 */}
                 <g
-                  className={`coolit-sensor-callout ${selectedSensor === 'PT61' ? 'selected' : ''}`}
+                  className={`coolit-sensor-callout ${isSensorFailed('PT61', 'PT62', 'PT61/PT62', 'PT61/62') ? 'sensor-failed' : ''} ${selectedSensor === 'PT61' ? 'selected' : ''}`}
                   onClick={() => handleNodeClick('PT61')}
                   cursor="pointer"
                 >
-                  <text x="40" y="325" className="cdu-svg-text font-mono" fill={c.textMuted} fontSize="11">PT61/62:</text>
-                  <text x="100" y="325" className="cdu-svg-text font-mono font-bold" fill={c.textMain} fontSize="11.5">
+                  <text x="40" y="325" className="cdu-svg-text font-mono" fill={isSensorFailed('PT61', 'PT62', 'PT61/PT62', 'PT61/62') ? c.textFail : c.textMuted} fontSize="11">PT61/62:</text>
+                  <text x="100" y="325" className={`cdu-svg-text font-mono font-bold ${isSensorFailed('PT61', 'PT62', 'PT61/PT62', 'PT61/62') ? 'cdu-val-failed' : ''}`} fill={isSensorFailed('PT61', 'PT62', 'PT61/PT62', 'PT61/62') ? c.textFail : c.textMain} fontSize="11.5">
                     {metrics.primaryReturnP.toFixed(1)} psi
                   </text>
                 </g>
 
                 {/* FT61/61v */}
                 <g
-                  className={`coolit-sensor-callout ${selectedSensor === 'FT61' ? 'selected' : ''}`}
+                  className={`coolit-sensor-callout ${isSensorFailed('FT61', 'FT61v', 'FT61/61v', 'FT61/FT61v', 'Primary Flow') ? 'sensor-failed' : ''} ${selectedSensor === 'FT61' ? 'selected' : ''}`}
                   onClick={() => handleNodeClick('FT61')}
                   cursor="pointer"
                 >
-                  <text x="40" y="347" className="cdu-svg-text font-mono" fill={c.textMuted} fontSize="11">FT61/61v:</text>
-                  <text x="100" y="347" className="cdu-svg-text font-mono font-bold" fill={c.textMain} fontSize="11.5">
+                  <text x="40" y="347" className="cdu-svg-text font-mono" fill={isSensorFailed('FT61', 'FT61v', 'FT61/61v', 'FT61/FT61v', 'Primary Flow') ? c.textFail : c.textMuted} fontSize="11">FT61/61v:</text>
+                  <text x="100" y="347" className={`cdu-svg-text font-mono font-bold ${isSensorFailed('FT61', 'FT61v', 'FT61/61v', 'FT61/FT61v', 'Primary Flow') ? 'cdu-val-failed' : ''}`} fill={isSensorFailed('FT61', 'FT61v', 'FT61/61v', 'FT61/FT61v', 'Primary Flow') ? c.textFail : c.textMain} fontSize="11.5">
                     {metrics.primaryFlow.toFixed(0)} l/m
                   </text>
                 </g>
 
                 {/* TT61/62 */}
                 <g
-                  className={`coolit-sensor-callout ${selectedSensor === 'TT61' ? 'selected' : ''}`}
+                  className={`coolit-sensor-callout ${isSensorFailed('TT61', 'TT62', 'TT61/TT62', 'TT61/62') ? 'sensor-failed' : ''} ${selectedSensor === 'TT61' ? 'selected' : ''}`}
                   onClick={() => handleNodeClick('TT61')}
                   cursor="pointer"
                 >
-                  <text x="40" y="428" className="cdu-svg-text font-mono" fill={c.textMuted} fontSize="11">TT61/62:</text>
-                  <text x="100" y="428" className="cdu-svg-text font-mono font-bold" fill={c.textMain} fontSize="11.5">
+                  <text x="40" y="428" className="cdu-svg-text font-mono" fill={isSensorFailed('TT61', 'TT62', 'TT61/TT62', 'TT61/62') ? c.textFail : c.textMuted} fontSize="11">TT61/62:</text>
+                  <text x="100" y="428" className={`cdu-svg-text font-mono font-bold ${isSensorFailed('TT61', 'TT62', 'TT61/TT62', 'TT61/62') ? 'cdu-val-failed' : ''}`} fill={isSensorFailed('TT61', 'TT62', 'TT61/TT62', 'TT61/62') ? c.textFail : c.textMain} fontSize="11.5">
                     {priReturnT.toFixed(1)} °C
                   </text>
                 </g>
@@ -636,49 +681,49 @@ export const CduFlowSchematic: React.FC<CduFlowSchematicProps> = ({
 
                 {/* PT21 (Suction) */}
                 <g
-                  className={`coolit-sensor-callout ${selectedSensor === 'PT21' ? 'selected' : ''}`}
+                  className={`coolit-sensor-callout ${isSensorFailed('PT21', 'PT_21', 'Suction Pressure') ? 'sensor-failed' : ''} ${selectedSensor === 'PT21' ? 'selected' : ''}`}
                   onClick={() => handleNodeClick('PT21')}
                   cursor="pointer"
                 >
-                  <text x="475" y="120" className="cdu-svg-text font-mono" fill={c.textMuted} fontSize="11">PT21:</text>
-                  <text x="515" y="120" className="cdu-svg-text font-mono font-bold" fill={c.textMain} fontSize="11.5">
+                  <text x="475" y="120" className="cdu-svg-text font-mono" fill={isSensorFailed('PT21', 'PT_21', 'Suction Pressure') ? c.textFail : c.textMuted} fontSize="11">PT21:</text>
+                  <text x="515" y="120" className={`cdu-svg-text font-mono font-bold ${isSensorFailed('PT21', 'PT_21', 'Suction Pressure') ? 'cdu-val-failed' : ''}`} fill={isSensorFailed('PT21', 'PT_21', 'Suction Pressure') ? c.textFail : c.textMain} fontSize="11.5">
                     {metrics.suctionPressure.toFixed(1)} psi
                   </text>
                 </g>
 
                 {/* PT32 / PT42 (Discharge) */}
                 <g
-                  className={`coolit-sensor-callout ${selectedSensor === 'PT32' ? 'selected' : ''}`}
+                  className={`coolit-sensor-callout ${isSensorFailed('PT32', 'PT42', 'PT32/PT42') ? 'sensor-failed' : ''} ${selectedSensor === 'PT32' ? 'selected' : ''}`}
                   onClick={() => handleNodeClick('PT32')}
                   cursor="pointer"
                 >
-                  <text x="740" y="120" className="cdu-svg-text font-mono" fill={c.textMuted} fontSize="11">PT32 / PT42:</text>
-                  <text x="835" y="120" className="cdu-svg-text font-mono font-bold" fill={c.textMain} fontSize="11.5">
+                  <text x="740" y="120" className="cdu-svg-text font-mono" fill={isSensorFailed('PT32', 'PT42', 'PT32/PT42') ? c.textFail : c.textMuted} fontSize="11">PT32 / PT42:</text>
+                  <text x="835" y="120" className={`cdu-svg-text font-mono font-bold ${isSensorFailed('PT32', 'PT42', 'PT32/PT42') ? 'cdu-val-failed' : ''}`} fill={isSensorFailed('PT32', 'PT42', 'PT32/PT42') ? c.textFail : c.textMain} fontSize="11.5">
                     {metrics.dischargePressure.toFixed(1)} psi
                   </text>
                 </g>
 
                 {/* TT31 / TT41 */}
                 <g
-                  className={`coolit-sensor-callout ${selectedSensor === 'TT31' ? 'selected' : ''}`}
+                  className={`coolit-sensor-callout ${isSensorFailed('TT31', 'TT41', 'TT31/TT41') ? 'sensor-failed' : ''} ${selectedSensor === 'TT31' ? 'selected' : ''}`}
                   onClick={() => handleNodeClick('TT31')}
                   cursor="pointer"
                 >
-                  <text x="740" y="165" className="cdu-svg-text font-mono" fill={c.textMuted} fontSize="11">TT31 / TT41:</text>
-                  <text x="835" y="165" className="cdu-svg-text font-mono font-bold" fill={c.textMain} fontSize="11.5">
+                  <text x="740" y="165" className="cdu-svg-text font-mono" fill={isSensorFailed('TT31', 'TT41', 'TT31/TT41') ? c.textFail : c.textMuted} fontSize="11">TT31 / TT41:</text>
+                  <text x="835" y="165" className={`cdu-svg-text font-mono font-bold ${isSensorFailed('TT31', 'TT41', 'TT31/TT41') ? 'cdu-val-failed' : ''}`} fill={isSensorFailed('TT31', 'TT41', 'TT31/TT41') ? c.textFail : c.textMain} fontSize="11.5">
                     {secSupplyT.toFixed(1)} °C
                   </text>
                 </g>
 
                 {/* TT45 */}
                 <g
-                  className={`coolit-sensor-callout ${selectedSensor === 'TT45' ? 'selected' : ''}`}
+                  className={`coolit-sensor-callout ${isSensorFailed('TT45') ? 'sensor-failed' : ''} ${selectedSensor === 'TT45' ? 'selected' : ''}`}
                   onClick={() => handleNodeClick('TT45')}
                   cursor="pointer"
                 >
-                  <text x="760" y="185" className="cdu-svg-text font-mono" fill={c.textMuted} fontSize="11">TT45:</text>
-                  <text x="835" y="185" className="cdu-svg-text font-mono font-bold" fill={c.textMain} fontSize="11.5">
-                    {(secSupplyT - 0.4).toFixed(1)} °C
+                  <text x="760" y="185" className="cdu-svg-text font-mono" fill={isSensorFailed('TT45') ? c.textFail : c.textMuted} fontSize="11">TT45:</text>
+                  <text x="835" y="185" className={`cdu-svg-text font-mono font-bold ${isSensorFailed('TT45') ? 'cdu-val-failed' : ''}`} fill={isSensorFailed('TT45') ? c.textFail : c.textMain} fontSize="11.5">
+                    {(metrics.cabinetT && metrics.cabinetT > 0 ? metrics.cabinetT : secSupplyT).toFixed(1)} °C
                   </text>
                 </g>
 
@@ -687,36 +732,36 @@ export const CduFlowSchematic: React.FC<CduFlowSchematicProps> = ({
 
                 {/* FT01 */}
                 <g
-                  className={`coolit-sensor-callout ${selectedSensor === 'FT01' ? 'selected' : ''}`}
+                  className={`coolit-sensor-callout ${isSensorFailed('FT01', 'FT_01', 'Secondary Flow') ? 'sensor-failed' : ''} ${selectedSensor === 'FT01' ? 'selected' : ''}`}
                   onClick={() => handleNodeClick('FT01')}
                   cursor="pointer"
                 >
-                  <text x="560" y="405" className="cdu-svg-text font-mono" fill={c.textMuted} fontSize="11">FT01:</text>
-                  <text x="600" y="405" className="cdu-svg-text font-mono font-bold" fill={c.textMain} fontSize="11.5">
+                  <text x="560" y="405" className="cdu-svg-text font-mono" fill={isSensorFailed('FT01', 'FT_01', 'Secondary Flow') ? c.textFail : c.textMuted} fontSize="11">FT01:</text>
+                  <text x="600" y="405" className={`cdu-svg-text font-mono font-bold ${isSensorFailed('FT01', 'FT_01', 'Secondary Flow') ? 'cdu-val-failed' : ''}`} fill={isSensorFailed('FT01', 'FT_01', 'Secondary Flow') ? c.textFail : c.textMain} fontSize="11.5">
                     {metrics.flow.toFixed(1)} l/m
                   </text>
                 </g>
 
                 {/* PT01 / PT02 */}
                 <g
-                  className={`coolit-sensor-callout ${selectedSensor === 'PT01' ? 'selected' : ''}`}
+                  className={`coolit-sensor-callout ${isSensorFailed('PT01', 'PT02', 'PT01/PT02') ? 'sensor-failed' : ''} ${selectedSensor === 'PT01' ? 'selected' : ''}`}
                   onClick={() => handleNodeClick('PT01')}
                   cursor="pointer"
                 >
-                  <text x="740" y="350" className="cdu-svg-text font-mono" fill={c.textMuted} fontSize="11">PT01 / PT02:</text>
-                  <text x="840" y="350" className="cdu-svg-text font-mono font-bold" fill={c.textMain} fontSize="11.5">
-                    {(metrics.suctionPressure * 0.05).toFixed(1)} psi
+                  <text x="740" y="350" className="cdu-svg-text font-mono" fill={isSensorFailed('PT01', 'PT02', 'PT01/PT02') ? c.textFail : c.textMuted} fontSize="11">PT01 / PT02:</text>
+                  <text x="840" y="350" className={`cdu-svg-text font-mono font-bold ${isSensorFailed('PT01', 'PT02', 'PT01/PT02') ? 'cdu-val-failed' : ''}`} fill={isSensorFailed('PT01', 'PT02', 'PT01/PT02') ? c.textFail : c.textMain} fontSize="11.5">
+                    {(metrics.secondaryReturnP != null && metrics.secondaryReturnP > 0 ? metrics.secondaryReturnP : metrics.suctionPressure * 0.05).toFixed(1)} psi
                   </text>
                 </g>
 
                 {/* TT01 / TT02 */}
                 <g
-                  className={`coolit-sensor-callout ${selectedSensor === 'TT01' ? 'selected' : ''}`}
+                  className={`coolit-sensor-callout ${isSensorFailed('TT01', 'TT02', 'TT01/TT02') ? 'sensor-failed' : ''} ${selectedSensor === 'TT01' ? 'selected' : ''}`}
                   onClick={() => handleNodeClick('TT01')}
                   cursor="pointer"
                 >
-                  <text x="740" y="428" className="cdu-svg-text font-mono" fill={c.textMuted} fontSize="11">TT01 / TT02:</text>
-                  <text x="840" y="428" className="cdu-svg-text font-mono font-bold" fill={c.textMain} fontSize="11.5">
+                  <text x="740" y="428" className="cdu-svg-text font-mono" fill={isSensorFailed('TT01', 'TT02', 'TT01/TT02') ? c.textFail : c.textMuted} fontSize="11">TT01 / TT02:</text>
+                  <text x="840" y="428" className={`cdu-svg-text font-mono font-bold ${isSensorFailed('TT01', 'TT02', 'TT01/TT02') ? 'cdu-val-failed' : ''}`} fill={isSensorFailed('TT01', 'TT02', 'TT01/TT02') ? c.textFail : c.textMain} fontSize="11.5">
                     {secReturnT.toFixed(1)} °C
                   </text>
                 </g>
@@ -745,25 +790,25 @@ export const CduFlowSchematic: React.FC<CduFlowSchematicProps> = ({
 
                   {/* Row 1: ACTUAL */}
                   <text x="12" y="47" className="cdu-svg-text font-mono" fill={c.tableHeader} fontSize="10.5" fontWeight="700">ACTUAL</text>
-                  <text x="102" y="47" textAnchor="middle" className="cdu-svg-text font-mono font-bold" fill={c.tableActualVal} fontSize="11">
+                  <text x="102" y="47" textAnchor="middle" className={`cdu-svg-text font-mono font-bold ${isSensorFailed('TT31', 'TT41', 'TT31/TT41', 'TT01') ? 'cdu-val-failed' : ''}`} fill={isSensorFailed('TT31', 'TT41', 'TT31/TT41', 'TT01') ? c.textFail : c.tableActualVal} fontSize="11">
                     {secSupplyT.toFixed(1)} °C
                   </text>
-                  <text x="157" y="47" textAnchor="middle" className="cdu-svg-text font-mono font-bold" fill={c.textAccentSec} fontSize="11">
+                  <text x="157" y="47" textAnchor="middle" className={`cdu-svg-text font-mono font-bold ${isSensorFailed('Secondary DP (Supply - Return)', 'Secondary DP', 'DP_01') ? 'cdu-val-failed' : ''}`} fill={isSensorFailed('Secondary DP (Supply - Return)', 'Secondary DP', 'DP_01') ? c.textFail : c.tableActualVal} fontSize="11">
                     {metrics.measuredDp.toFixed(1)} psi
                   </text>
-                  <text x="212" y="47" textAnchor="middle" className="cdu-svg-text font-mono font-bold" fill={c.tableActualVal} fontSize="11">
+                  <text x="212" y="47" textAnchor="middle" className={`cdu-svg-text font-mono font-bold ${isSensorFailed('FT01', 'Secondary Flow') ? 'cdu-val-failed' : ''}`} fill={isSensorFailed('FT01', 'Secondary Flow') ? c.textFail : c.tableActualVal} fontSize="11">
                     {metrics.flow.toFixed(0)} l/m
                   </text>
 
-                  {/* Row 2: SETPOINT */}
+                  {/* Row 2: SETPOINT (Machine Control Targets / Reference Inputs) */}
                   <text x="12" y="74" className="cdu-svg-text font-mono" fill={c.tableHeader} fontSize="10" fontWeight="700">SETPOINT</text>
-                  <text x="102" y="74" textAnchor="middle" className="cdu-svg-text font-mono" fill={c.tableSetpointVal} fontSize="11">
+                  <text x="102" y="74" textAnchor="middle" className="cdu-svg-text font-mono font-medium" fill={c.tableSetpointVal} fontSize="11">
                     {metrics.tempSp != null ? `${metrics.tempSp.toFixed(1)} °C` : '40.0 °C'}
                   </text>
-                  <text x="157" y="74" textAnchor="middle" className="cdu-svg-text font-mono" fill={c.tableSetpointVal} fontSize="11">
+                  <text x="157" y="74" textAnchor="middle" className="cdu-svg-text font-mono font-medium" fill={c.tableSetpointVal} fontSize="11">
                     {metrics.dpSp != null ? `${metrics.dpSp.toFixed(1)} psi` : '15.0 psi'}
                   </text>
-                  <text x="212" y="74" textAnchor="middle" className="cdu-svg-text font-mono" fill={c.tableNaVal} fontSize="11">
+                  <text x="212" y="74" textAnchor="middle" className="cdu-svg-text font-mono font-medium" fill={metrics.flowSp != null ? c.tableSetpointVal : c.tableNaVal} fontSize="11">
                     {metrics.flowSp != null ? `${metrics.flowSp.toFixed(0)}` : 'na'}
                   </text>
                 </g>
@@ -806,210 +851,6 @@ export const CduFlowSchematic: React.FC<CduFlowSchematicProps> = ({
             <span className="coolit-brand-sub">systems™</span>
           </div>
         </div>
-      )}
-
-      {/* Alternate Metric Cards Grid View */}
-      {viewMode === 'cards' && (
-        <div className="cad-schematic-diagram">
-          {/* TOP: Reservoir, Make-up & Vent Zone */}
-          <div className="cad-schematic-top-bar">
-            <div 
-              className={`cad-mimic-node node-reservoir ${selectedSensor === 'PT11' ? 'selected' : ''}`}
-              onClick={() => handleNodeClick('PT11')}
-              title="Reservoir & Make-up Filter (PT11)"
-            >
-              <div className="node-tag">M/F Reservoir (PT11)</div>
-              <div className="node-val font-mono">{metrics.reservoirPressure.toFixed(2)} psi</div>
-              <div className="node-sub font-mono">Pressurized Makeup Tank</div>
-            </div>
-
-            <div className={`cad-mimic-vent-box ${metrics.airBleedWarning ? 'alert' : 'normal'}`}>
-              <div className="vent-title">PRIMARY FILTER VENT / AIR SEPARATOR</div>
-              <div className="vent-status font-mono">
-                {metrics.airBleedWarning ? '⚠️ DEFICIT: Check Incomplete Venting / Air Locks' : '✓ 100% Bleed Verified'}
-              </div>
-            </div>
-          </div>
-
-          {/* DUAL LOOP BODY */}
-          <div className="cad-schematic-loops-grid">
-            {/* Primary Loop */}
-            <div className="cad-loop-card loop-primary">
-              <div className="loop-card-title">
-                <span className="loop-dot primary"></span>
-                <span>PRIMARY LOOP (FACILITY WATER)</span>
-              </div>
-
-              <div className="loop-nodes-stack">
-                <div 
-                  className={`cad-mimic-node ${selectedSensor === 'PT51' ? 'selected' : ''}`}
-                  onClick={() => handleNodeClick('PT51')}
-                >
-                  <div className="node-header">
-                    <span className="node-tag">Supply PT51 / TT01</span>
-                    <span className="node-arrow steady">→ In</span>
-                  </div>
-                  <div className="node-data font-mono">
-                    <span className="primary-metric">{metrics.primarySupplyP.toFixed(1)} psi</span>
-                    <span className="secondary-metric">{priSupplyT.toFixed(1)}°C</span>
-                  </div>
-                </div>
-
-                <div 
-                  className={`cad-mimic-node node-valve ${selectedSensor === 'FCV61 Actual Flow%' ? 'selected' : ''}`}
-                  onClick={() => handleNodeClick('FCV61 Actual Flow%')}
-                >
-                  <div className="node-header">
-                    <span className="node-tag">Modulating Valve (M / FCV61)</span>
-                    <span className="node-badge font-mono">AUTO</span>
-                  </div>
-                  <div className="node-data font-mono">
-                    <span className="primary-metric">{metrics.modulatingValve.toFixed(1)}% Open</span>
-                  </div>
-                </div>
-
-                <div 
-                  className={`cad-mimic-node ${selectedSensor === 'PT61' ? 'selected' : ''}`}
-                  onClick={() => handleNodeClick('PT61')}
-                >
-                  <div className="node-header">
-                    <span className="node-tag">Return PT61 / FT61</span>
-                    <span className="node-arrow steady">← Out</span>
-                  </div>
-                  <div className="node-data font-mono">
-                    <span className="primary-metric">{metrics.primaryReturnP.toFixed(1)} psi</span>
-                    <span className="secondary-metric">{metrics.primaryFlow.toFixed(0)} LPM</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Central Plate Heat Exchanger (PHE) */}
-            <div className="cad-schematic-phe-column">
-              <div className="cad-phe-block">
-                <div className="phe-header">
-                  <Layers size={14} className="text-cyan" />
-                  <span className="phe-title font-bold">PLATE HEAT EXCHANGER</span>
-                </div>
-                <div className="phe-core-graphic">
-                  <div className="phe-chevron ch-1"></div>
-                  <div className="phe-chevron ch-2"></div>
-                  <div className="phe-chevron ch-3"></div>
-                  <div className="phe-flow-tag primary">Primary: {metrics.primaryFlow.toFixed(0)} LPM</div>
-                  <div className="phe-flow-tag secondary">Secondary: {metrics.flow.toFixed(0)} LPM</div>
-                </div>
-                <div className="phe-meta font-mono">
-                  <div>Primary ΔP: {(metrics.primarySupplyP - metrics.primaryReturnP).toFixed(1)} psi</div>
-                  <div>Filter 53 ΔP: {metrics.primaryFilter53Dp.toFixed(2)} psi</div>
-                </div>
-              </div>
-            </div>
-
-            {/* Secondary Loop */}
-            <div className="cad-loop-card loop-secondary">
-              <div className="loop-card-title">
-                <span className="loop-dot secondary"></span>
-                <span>SECONDARY LOOP (IT SERVER RACKS)</span>
-              </div>
-
-              <div className="secondary-circuit-layout">
-                <div 
-                  className={`cad-mimic-node node-suction ${!metrics.suctionCavitationSafe ? 'alert' : ''} ${selectedSensor === 'PT21' ? 'selected' : ''}`}
-                  onClick={() => handleNodeClick('PT21')}
-                  title="Secondary Pump Suction PT21"
-                >
-                  <div className="node-header">
-                    <span className="node-tag font-bold">Pump Suction (PT21)</span>
-                    <span className={`node-badge font-mono ${metrics.suctionCavitationSafe ? 'safe' : 'danger'}`}>
-                      {metrics.suctionCavitationSafe ? 'SAFE >15 psi' : '⚠️ CAVITATION'}
-                    </span>
-                  </div>
-                  <div className="node-data font-mono">
-                    <span className="primary-metric font-bold">{metrics.suctionPressure.toFixed(2)} psi</span>
-                    <span className={`delta-tag ${deltaSuction.direction}`}>{deltaSuction.text}</span>
-                  </div>
-                </div>
-
-                <div className="cad-pumps-row">
-                  <div 
-                    className={`cad-mimic-node pump-node ${selectedSensor === 'P31 Speed %' ? 'selected' : ''}`}
-                    onClick={() => handleNodeClick('P31 Speed %')}
-                  >
-                    <div className="node-header">
-                      <Activity size={12} className="text-cyan" />
-                      <span className="node-tag">Pump P31</span>
-                    </div>
-                    <div className="node-data font-mono">
-                      <span className="primary-metric">{metrics.p31Speed.toFixed(1)}%</span>
-                    </div>
-                    <div className="node-sub font-mono">Disch: {metrics.dischargePressure.toFixed(1)} psi</div>
-                  </div>
-
-                  <div 
-                    className={`cad-mimic-node pump-node ${selectedSensor === 'P41 Speed %' ? 'selected' : ''}`}
-                    onClick={() => handleNodeClick('P41 Speed %')}
-                  >
-                    <div className="node-header">
-                      <Activity size={12} className="text-blue" />
-                      <span className="node-tag">Pump P41</span>
-                    </div>
-                    <div className="node-data font-mono">
-                      <span className="primary-metric">{metrics.p41Speed.toFixed(1)}%</span>
-                    </div>
-                    <div className="node-sub font-mono">Disch: {metrics.dischargePressure.toFixed(1)} psi</div>
-                  </div>
-                </div>
-
-                <div className="secondary-flow-track">
-                  <div 
-                    className={`cad-mimic-node ${selectedSensor === 'TT31' ? 'selected' : ''}`}
-                    onClick={() => handleNodeClick('TT31')}
-                  >
-                    <div className="node-header">
-                      <span className="node-tag">Supply TT31 / PT32</span>
-                      <span className="node-arrow up">→ Load</span>
-                    </div>
-                    <div className="node-data font-mono">
-                      <span className="primary-metric">{secSupplyT.toFixed(1)}°C</span>
-                      <span className="secondary-metric">{metrics.dischargePressure.toFixed(1)} psi</span>
-                    </div>
-                  </div>
-
-                  <div 
-                    className={`cad-mimic-node node-dp-load ${selectedSensor === 'Secondary DP (Supply - Return)' ? 'selected' : ''}`}
-                    onClick={() => handleNodeClick('Secondary DP (Supply - Return)')}
-                  >
-                    <div className="node-header">
-                      <span className="node-tag font-bold">Target DP: {metrics.dpSp ?? '--'} psi</span>
-                      <span className="node-badge font-mono fixed">🔒 VALVES FIXED</span>
-                    </div>
-                    <div className="node-data font-mono">
-                      <span className="primary-metric font-bold text-cyan">{metrics.measuredDp.toFixed(2)} psi</span>
-                      <span className={`delta-tag ${deltaDp.direction}`}>{deltaDp.text}</span>
-                    </div>
-                    <div className="node-sub">Secondary DP = Supply - Return</div>
-                  </div>
-
-                  <div 
-                    className={`cad-mimic-node ${selectedSensor === 'FT01' ? 'selected' : ''}`}
-                    onClick={() => handleNodeClick('FT01')}
-                  >
-                    <div className="node-header">
-                      <span className="node-tag font-bold">Return Flow (FT01)</span>
-                      <span className="node-arrow down">← HEX</span>
-                    </div>
-                    <div className="node-data font-mono">
-                      <span className="primary-metric font-bold text-cyan">{metrics.flow.toFixed(1)} LPM</span>
-                      <span className={`delta-tag ${deltaFlow.direction}`}>{deltaFlow.text}</span>
-                    </div>
-                    <div className="node-sub font-mono">Ref: {metrics.flowSp ?? '--'} LPM | TT41: {secReturnT.toFixed(1)}°C</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

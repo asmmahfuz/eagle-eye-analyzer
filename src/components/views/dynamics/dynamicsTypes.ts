@@ -20,6 +20,11 @@ export interface StageDynamicsMetrics {
   reservoirPressure: number;
   secondarySupplyT: number;
   secondaryReturnT: number;
+  secondaryReturnP?: number;
+  cabinetT?: number;
+  ambientT?: number;
+  ambientRh?: number;
+  dewpoint?: number;
 
   // Primary loop transducers
   primaryFlow: number;
@@ -94,18 +99,25 @@ export function extractStageMetrics(
   const p41Speed = normalizeAnalogValue(getMetric(row, 'P41 Speed %', 'P41_Speed', 'P41'));
   const avgPumpSpeed = (p31Speed + p41Speed) / (p31Speed > 0 && p41Speed > 0 ? 2 : 1);
   const suctionPressure = getMetric(row, 'PT21', 'PT_21', 'Suction Pressure');
-  const dischargePressure = getMetric(row, 'PT32', 'PT42', 'PT31', 'PT41');
+  const dischargePressure = getMetric(row, 'PT32', 'PT42', 'PT32/PT42');
   const reservoirPressure = getMetric(row, 'PT11', 'PT_11');
-  const secondarySupplyT = getMetric(row, 'TT31', 'TT41', 'TT45');
-  const secondaryReturnT = getMetric(row, 'TT41', 'TT01');
+  const secondarySupplyT = getMetric(row, 'TT31', 'TT41', 'TT31/TT41', 'TT01');
+  const secondaryReturnT = getMetric(row, 'TT02', 'TT01', 'TT01/TT02');
+  const secondaryReturnP = getMetric(row, 'PT01', 'PT02', 'PT01/PT02');
+  const cabinetT = getMetric(row, 'TT45', 'TT_45');
 
   // Primary loop readings
   const primaryFlow = getMetric(row, 'FT61', 'FT_61', 'Primary Flow');
-  const primarySupplyP = getMetric(row, 'PT51', 'PT52');
-  const primaryReturnP = getMetric(row, 'PT61', 'PT62');
-  const primarySupplyT = getMetric(row, 'TT01', 'TT51', 'TT52');
-  const primaryReturnT = getMetric(row, 'TT02', 'TT61', 'TT62');
+  const primarySupplyP = getMetric(row, 'PT51', 'PT52', 'PT51/PT52');
+  const primaryReturnP = getMetric(row, 'PT61', 'PT62', 'PT61/PT62');
+  const primarySupplyT = getMetric(row, 'TT51', 'TT52', 'TT51/TT52', 'TT61');
+  const primaryReturnT = getMetric(row, 'TT62', 'TT61', 'TT61/TT62', 'TT52');
   const modulatingValve = normalizeAnalogValue(getMetric(row, 'FCV61 Actual Flow%', 'FCV61 Actual Open%'));
+
+  // Environmental readings & calculated dewpoint
+  const ambientT = getMetric(row, 'Air Temperature', 'Ambient Temperature');
+  const ambientRh = getMetric(row, 'Air Humidity', 'Relative Humidity');
+  const dewpoint = ambientT > 0 && ambientRh > 0 ? Number((ambientT - (100 - ambientRh) / 5).toFixed(1)) : 8.6;
 
   // Filter differentials
   const filter31Dp = getMetric(row, 'Pump 31 Filter DP');
@@ -119,8 +131,8 @@ export function extractStageMetrics(
   const prevAvgPump = (prevP31 + prevP41) / (prevP31 > 0 && prevP41 > 0 ? 2 : 1);
   const prevFlow = prevRow ? getMetric(prevRow, 'FT01', 'FT_01', 'Secondary Flow') : flow;
   const prevSuction = prevRow ? getMetric(prevRow, 'PT21', 'PT_21', 'Suction Pressure') : suctionPressure;
-  const prevDischarge = prevRow ? getMetric(prevRow, 'PT32', 'PT42', 'PT31', 'PT41') : dischargePressure;
-  const prevTemp = prevRow ? getMetric(prevRow, 'TT31', 'TT41', 'TT45') : secondarySupplyT;
+  const prevDischarge = prevRow ? getMetric(prevRow, 'PT32', 'PT42', 'PT32/PT42') : dischargePressure;
+  const prevTemp = prevRow ? getMetric(prevRow, 'TT31', 'TT41', 'TT31/TT41', 'TT01') : secondarySupplyT;
 
   const deltaDp = measuredDp - prevDp;
   const deltaPump = avgPumpSpeed - prevAvgPump;
@@ -152,6 +164,11 @@ export function extractStageMetrics(
     reservoirPressure,
     secondarySupplyT,
     secondaryReturnT,
+    secondaryReturnP,
+    cabinetT,
+    ambientT,
+    ambientRh,
+    dewpoint,
     primaryFlow,
     primarySupplyP,
     primaryReturnP,

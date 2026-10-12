@@ -2,15 +2,11 @@ import React, { useState, useMemo } from 'react';
 import { EagleEyeDataset, OperatingStage } from '../../../types';
 import { CduFlowSchematic } from './CduFlowSchematic';
 import { StimulusResponseChart } from './StimulusResponseChart';
-import { StageCouplingMatrix } from './StageCouplingMatrix';
 import { extractStageMetrics } from './dynamicsTypes';
 import {
   Sliders,
   Activity,
-  Cpu,
-  Layers,
-  BarChart2,
-  AlertTriangle
+  Cpu
 } from '../../Icons';
 
 export interface SystemDynamicsProps {
@@ -19,7 +15,7 @@ export interface SystemDynamicsProps {
   onSelectSensor?: (sensor: string | null) => void;
 }
 
-type DynamicsSubView = 'all' | 'schematic' | 'scope' | 'matrix';
+type DynamicsSubView = 'schematic' | 'scope';
 
 export const SystemDynamics: React.FC<SystemDynamicsProps> = ({
   dataset,
@@ -27,7 +23,7 @@ export const SystemDynamics: React.FC<SystemDynamicsProps> = ({
   onSelectSensor
 }) => {
   const [activeStageIdx, setActiveStageIdx] = useState<number>(0);
-  const [subView, setSubView] = useState<DynamicsSubView>('all');
+  const [subView, setSubView] = useState<DynamicsSubView>('scope');
 
   const stages: OperatingStage[] = dataset?.stages || [];
   const currentStage = stages[activeStageIdx] || stages[0];
@@ -112,12 +108,12 @@ export const SystemDynamics: React.FC<SystemDynamicsProps> = ({
         <div className="cad-dynamics-mode-switcher">
           <button
             type="button"
-            className={`cad-mode-btn ${subView === 'all' ? 'active' : ''}`}
-            onClick={() => setSubView('all')}
-            title="All Cockpit Modules"
+            className={`cad-mode-btn ${subView === 'scope' ? 'active' : ''}`}
+            onClick={() => setSubView('scope')}
+            title="Multi-Axis Oscilloscope Only"
           >
-            <Layers size={11} />
-            <span>All Cockpit</span>
+            <Activity size={11} />
+            <span>Dynamics Scope</span>
           </button>
           <button
             type="button"
@@ -128,29 +124,11 @@ export const SystemDynamics: React.FC<SystemDynamicsProps> = ({
             <Cpu size={11} />
             <span>Flow Schematic</span>
           </button>
-          <button
-            type="button"
-            className={`cad-mode-btn ${subView === 'scope' ? 'active' : ''}`}
-            onClick={() => setSubView('scope')}
-            title="Multi-Axis Oscilloscope Only"
-          >
-            <Activity size={11} />
-            <span>Dynamics Scope</span>
-          </button>
-          <button
-            type="button"
-            className={`cad-mode-btn ${subView === 'matrix' ? 'active' : ''}`}
-            onClick={() => setSubView('matrix')}
-            title="Stage Coupling Table Only"
-          >
-            <BarChart2 size={11} />
-            <span>Coupling Matrix</span>
-          </button>
         </div>
       </div>
 
       {/* 3. Component 3: Interactive CDU Flow Schematic */}
-      {(subView === 'all' || subView === 'schematic') && (
+      {subView === 'schematic' && (
         <CduFlowSchematic
           metrics={metrics}
           dataset={dataset}
@@ -160,70 +138,14 @@ export const SystemDynamics: React.FC<SystemDynamicsProps> = ({
       )}
 
       {/* 4. Component 4: Stimulus vs. Response Multi-Axis Dynamics Chart */}
-      {(subView === 'all' || subView === 'scope') && (
+      {subView === 'scope' && (
         <StimulusResponseChart
           dataset={dataset}
           activeStageIdx={activeStageIdx}
           onSelectStage={setActiveStageIdx}
         />
       )}
-
-      {/* 5. Component 5: Stage Coupling Interconnection Matrix */}
-      {(subView === 'all' || subView === 'matrix') && (
-        <StageCouplingMatrix
-          dataset={dataset}
-          activeStageIdx={activeStageIdx}
-          onSelectStage={setActiveStageIdx}
-          metrics={metrics}
-          selectedSensor={selectedSensor}
-          onSelectSensor={onSelectSensor}
-        />
-      )}
-
-      {/* 6. Closed-Loop System Invariants & Shopfloor Principles (SOP-CDU-CHX2000) */}
-      <div className="cad-dynamics-card cad-invariants-summary">
-        <div className="cad-dynamics-card-header">
-          <div className="card-title-group">
-            <Cpu size={14} className="text-cyan" />
-            <h4 className="font-bold">Closed-Loop System Coupling Invariants</h4>
-          </div>
-          <span className="card-sub font-mono">SOP-CDU-CHX2000 Shopfloor Standard</span>
-        </div>
-
-        <div className="cad-dynamics-coupling-rules">
-          <div className="cad-coupling-rule-item">
-            <div className="rule-badge up">Motor Speed ↑</div>
-            <div className="rule-desc">
-              <strong>Flow (FT01) ↑ & Discharge (PT32/42) ↑, but Suction (PT21) Drawdown ↓:</strong>
-              <span> Higher motor RPM aggressively pulls fluid from suction manifold. Verify suction pressure maintains ≥ 15 psi to prevent impeller cavitation.</span>
-            </div>
-          </div>
-
-          <div className="cad-coupling-rule-item">
-            <div className="rule-badge up">High DP Dwell ↑</div>
-            <div className="rule-desc">
-              <strong>Impeller Shear & Heavy Torque dissipates heat into coolant loop:</strong>
-              <span> At high DP stages (e.g. Stage 4 at 33 psi), heavy pump work heats secondary coolant (TT31/41 ↑). Fluid heating is normal physics, not thermal sensor drift.</span>
-            </div>
-          </div>
-
-          <div className="cad-coupling-rule-item">
-            <div className="rule-badge info">Priority 1 Root Cause</div>
-            <div className="rule-desc">
-              <strong>Trapped Air / Incomplete Air Bleed (SOP Step 7):</strong>
-              <span> Low flow is primarily caused by air locks in primary filter housing or pump volutes. Ensure air venting prior to Eagle Eye was completely executed.</span>
-            </div>
-          </div>
-
-          <div className="cad-coupling-rule-item">
-            <div className="rule-badge info">Priority 2 Root Cause</div>
-            <div className="rule-desc">
-              <strong>IFM Moneo Flow Transmitter Scaling:</strong>
-              <span> If sensor parameter or damping is set too high in Moneo, the sensor mathematically scales down measured LPM. Technicians adjust this parameter as a calibrated adjustment.</span>
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   );
 };
+

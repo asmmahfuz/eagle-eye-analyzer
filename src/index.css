@@ -4313,10 +4313,11 @@ body,
 .cad-theme-pill-btn {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  justify-content: center;
+  width: 20px;
   height: 20px;
-  padding: 0 8px;
-  border-radius: 12px;
+  padding: 0;
+  border-radius: 4px;
   font-size: 10px;
   font-weight: 600;
   cursor: pointer;
@@ -5251,20 +5252,36 @@ body,
 .cad-data-table th {
   background: var(--bg-panel);
   border-bottom: 2px solid var(--border-color);
-  padding: 6px 10px;
+  padding: 3.5px 8px;
   text-align: left;
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 700;
   color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 0.02em;
+  line-height: 1.2;
 }
 
 .cad-data-table td {
-  padding: 6px 10px;
+  padding: 2.5px 8px;
   border-bottom: 1px solid var(--border-subtle);
   color: var(--text-main);
   vertical-align: middle;
+  line-height: 1.25;
+}
+
+.cad-data-table .cad-stage-badge {
+  padding: 1px 5px;
+  font-size: 9px;
+  line-height: 1.2;
+  margin: 0;
+}
+
+.cad-data-table .cad-details-btn {
+  padding: 1.5px 6px;
+  font-size: 10px;
+  line-height: 1.2;
+  margin: 0;
 }
 
 .cad-data-table tr:hover {
@@ -5505,6 +5522,48 @@ body,
   color: var(--text-main);
   text-align: right;
   word-break: break-all;
+}
+
+.cad-prop-diagnostic-content {
+  padding: 8px 10px;
+}
+
+.cad-inspector-rework-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--font-sans);
+  color: var(--accent-cyan);
+  background: rgba(0, 210, 255, 0.08);
+  border: 1px solid rgba(0, 210, 255, 0.35);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-decoration: none;
+}
+
+.cad-inspector-rework-btn:hover {
+  background: rgba(0, 210, 255, 0.18);
+  border-color: var(--accent-cyan);
+  color: #ffffff;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 210, 255, 0.25);
+}
+
+.cad-inspector-rework-btn.danger-action {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.35);
+}
+
+.cad-inspector-rework-btn.danger-action:hover {
+  background: rgba(239, 68, 68, 0.18);
+  border-color: #ef4444;
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.25);
 }
 
 /* --- Bottom Window: Diagnostic Terminal Panel --- */
@@ -6268,6 +6327,125 @@ body,
 }
 
 /* ==========================================================================
+   PHASE 17.1: COMPACT STAGE DWELL SELECTOR STRIP & PROGRESSIVE DISCLOSURE
+   ========================================================================== */
+.stage-dwell-filter-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  box-shadow: var(--shadow-sm);
+  margin: 6px 0 10px 0;
+  flex-wrap: wrap;
+}
+
+.stage-dwell-strip-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.stage-dwell-strip-label {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--text-dim);
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+.stage-dwell-strip-buttons {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.stage-strip-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.stage-strip-btn:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--accent-cyan);
+  color: var(--text-main);
+}
+
+.stage-strip-btn.active {
+  background: rgba(2, 132, 199, 0.14);
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+  font-weight: 700;
+  box-shadow: 0 0 0 1px var(--accent-cyan);
+}
+
+[data-theme="dark"] .stage-strip-btn.active {
+  background: rgba(0, 210, 255, 0.18);
+  border-color: #00d2ff;
+  color: #00d2ff;
+  box-shadow: 0 0 0 1px #00d2ff;
+}
+
+.stage-strip-btn .stage-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+}
+
+.stage-strip-btn .stage-dot.pass {
+  background: var(--success);
+}
+
+.stage-strip-btn .stage-dot.fail {
+  background: var(--danger);
+}
+
+.stage-drawer-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent-cyan);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.stage-drawer-toggle-btn:hover {
+  background: rgba(2, 132, 199, 0.1);
+  border-color: var(--accent-cyan);
+}
+
+.stage-drawer-container {
+  margin-top: -4px;
+  margin-bottom: 12px;
+  animation: fadeIn 0.2s ease;
+}
+
+/* ==========================================================================
    STAGE MATRIX TABLE (SWAPPED AXIS: 10 ROWS X SETPOINT & EXCURSION COLUMNS)
    ========================================================================== */
 .stage-matrix-container {
@@ -6430,14 +6608,15 @@ body,
 .stage-matrix-table th {
   background: var(--bg-panel);
   border-bottom: 2px solid var(--border-color);
-  padding: 6px 10px;
+  padding: 3.5px 8px;
   text-align: left;
-  font-size: 10.5px;
+  font-size: 10px;
   font-weight: 700;
   color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 0.03em;
   white-space: nowrap;
+  line-height: 1.2;
 }
 
 .stage-matrix-row {
@@ -6533,8 +6712,9 @@ body,
 }
 
 .stage-matrix-table td {
-  padding: 5px 10px;
+  padding: 2.5px 8px;
   vertical-align: middle;
+  line-height: 1.25;
 }
 
 .stage-cell-stage {
@@ -6779,6 +6959,97 @@ body,
   overflow: hidden;
   box-shadow: var(--shadow-sm);
 }
+
+/* ==========================================================================
+   PHASE 17.4: ACTIONABLE DEFICIT LEDGER & PROGRESSIVE DISCLOSURE STYLES
+   ========================================================================== */
+.actionable-filter-pills-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-wrap: wrap;
+}
+
+.pills-row-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-right: 2px;
+}
+
+.actionable-channel-pill-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--bg-panel);
+  color: var(--text-main);
+  border: 1px solid var(--border-color);
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.actionable-channel-pill-btn:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+}
+
+.actionable-channel-pill-btn.active {
+  background: rgba(239, 68, 68, 0.14);
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.45);
+  font-weight: 700;
+}
+
+[data-theme="dark"] .actionable-channel-pill-btn.active {
+  background: rgba(239, 68, 68, 0.22);
+  color: #f87171;
+  border-color: rgba(239, 68, 68, 0.6);
+}
+
+.actionable-channel-pill-btn .pill-count-badge {
+  font-size: 9.5px;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(100, 116, 139, 0.2);
+  color: var(--text-dim);
+}
+
+.actionable-channel-pill-btn.active .pill-count-badge {
+  background: rgba(239, 68, 68, 0.3);
+  color: #ffffff;
+}
+
+/* Collapsible QA Sign-off Card Drawer */
+.qa-signoff-checklist-card {
+  margin-top: 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.15s ease;
+}
+
+.qa-signoff-checklist-card:hover {
+  border-color: var(--accent-cyan);
+}
+
+.qa-signoff-checklist-card.is-collapsed .qa-checklist-header {
+  border-bottom: none;
+}
+
 
 .qa-checklist-header {
   display: flex;
@@ -8435,17 +8706,17 @@ body,
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1.5px solid #f87171;
-  background: radial-gradient(circle at 35% 35%, #ef4444, #991b1b);
+  border: 1.5px solid #34d399;
+  background: radial-gradient(circle at 35% 35%, #10b981, #047857);
   color: #ffffff;
   cursor: pointer;
-  box-shadow: 0 0 8px rgba(239, 68, 68, 0.5), inset 0 1px 2px rgba(255, 255, 255, 0.4);
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.5), inset 0 1px 2px rgba(255, 255, 255, 0.4);
   transition: all 0.2s ease;
 }
 
 .coolit-power-btn:hover {
   transform: scale(1.05);
-  box-shadow: 0 0 12px rgba(239, 68, 68, 0.8);
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.8);
 }
 
 .coolit-power-btn.power-off {
@@ -8580,6 +8851,22 @@ body,
   fill: #0891b2;
   font-weight: 800;
   filter: drop-shadow(0 0 4px rgba(8, 145, 178, 0.4));
+}
+
+.coolit-sensor-callout.sensor-failed text.cdu-val-failed,
+text.cdu-val-failed,
+tspan.cdu-val-failed {
+  fill: #dc2626 !important;
+}
+
+.coolit-sensor-callout.sensor-failed:hover text {
+  fill: #dc2626;
+  filter: drop-shadow(0 0 3px rgba(220, 38, 38, 0.5));
+}
+
+.coolit-sensor-callout.sensor-failed.selected text {
+  fill: #ef4444;
+  filter: drop-shadow(0 0 5px rgba(239, 68, 68, 0.8));
 }
 
 .coolit-interactive-valve:hover circle {
@@ -8792,6 +9079,22 @@ body,
 [data-theme="dark"] .coolit-sensor-callout.selected text {
   fill: #22d3ee;
   filter: drop-shadow(0 0 5px rgba(34, 211, 238, 0.8));
+}
+
+[data-theme="dark"] .coolit-sensor-callout.sensor-failed text.cdu-val-failed,
+[data-theme="dark"] text.cdu-val-failed,
+[data-theme="dark"] tspan.cdu-val-failed {
+  fill: #f87171 !important;
+}
+
+[data-theme="dark"] .coolit-sensor-callout.sensor-failed:hover text {
+  fill: #f87171;
+  filter: drop-shadow(0 0 3px rgba(248, 113, 113, 0.7));
+}
+
+[data-theme="dark"] .coolit-sensor-callout.sensor-failed.selected text {
+  fill: #f87171;
+  filter: drop-shadow(0 0 6px rgba(248, 113, 113, 0.9));
 }
 
 [data-theme="dark"] .coolit-interactive-valve:hover circle {
@@ -9866,6 +10169,170 @@ body.cad-resizing-row .cad-splitter {
   color: #041019;
 }
 
+/* ==========================================================================
+   CONCISE DIAGNOSTICS IN DEVELOPMENT PLACEHOLDER
+   ========================================================================== */
 
+.cad-diag-placeholder-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+}
 
+.cad-diag-hero-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 20px 24px;
+  box-shadow: var(--shadow-sm);
+  position: relative;
+  overflow: hidden;
+}
+
+.cad-diag-hero-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--accent-cyan), #10b981, var(--accent-cyan));
+}
+
+.cad-diag-hero-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.cad-diag-icon-box {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: var(--accent-cyan-subtle);
+  border: 1px solid var(--accent-cyan-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.cad-diag-hero-text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+
+.cad-diag-badge-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.cad-diag-status-badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  color: var(--accent-cyan);
+  background: var(--accent-cyan-subtle);
+  border: 1px solid var(--accent-cyan-border);
+  padding: 2px 8px;
+  border-radius: 10px;
+  text-transform: uppercase;
+}
+
+.cad-diag-unit-badge {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+}
+
+.cad-diag-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin: 0;
+  letter-spacing: -0.2px;
+}
+
+.cad-diag-subtitle {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin: 0;
+  line-height: 1.5;
+  max-width: 800px;
+}
+
+/* 4 Compact Cards */
+.cad-diag-features-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px;
+}
+
+.cad-diag-feature-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: var(--shadow-sm);
+  transition: all 0.15s ease;
+}
+
+.cad-diag-feature-card:hover {
+  border-color: var(--border-active);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.cad-diag-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.cad-diag-card-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.cad-diag-card-status {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+  color: var(--accent-cyan);
+  background: var(--accent-cyan-subtle);
+  border: 1px solid var(--accent-cyan-border);
+  padding: 2px 7px;
+  border-radius: 8px;
+}
+
+.cad-diag-card-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin: 0;
+}
+
+.cad-diag-card-desc {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  margin: 0;
+  line-height: 1.45;
+}
 

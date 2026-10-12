@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { CadMainView, SubsystemCategory, SUBSYSTEM_LABELS } from '../../types';
 import { CduModelId } from '../../engine/models/modelTypes';
-import { CadModelSelector } from './CadModelSelector';
 import {
   FileSpreadsheet,
   FolderOpen,
@@ -202,48 +201,6 @@ export const CadTopMenuBar: React.FC<CadTopMenuBarProps> = ({
               </button>
             </div>
 
-            <span className="cad-title-toolbar-sep"></span>
-
-            {/* Quick Access View Switcher Strip for the 4 Consolidated Tabs */}
-            <div className="cad-title-btn-group cad-title-view-switcher" role="radiogroup" aria-label="Consolidated Canvas Views">
-              <button
-                className={`cad-title-icon-btn cad-view-btn cad-btn-datasheet ${activeView === 'datasheet' ? 'active' : ''}`}
-                onClick={() => onSelectView('datasheet')}
-                title="Data Sheet & Verification Matrix [Alt+1]"
-                aria-label="Data Sheet & Verification Matrix"
-              >
-                <BarChart2 size={12} />
-                <span className="cad-title-btn-label">Data Sheet</span>
-              </button>
-              <button
-                className={`cad-title-icon-btn cad-view-btn cad-btn-telemetry ${activeView === 'telemetry' ? 'active' : ''}`}
-                onClick={() => onSelectView('telemetry')}
-                title="Telemetry Oscilloscope [Alt+2]"
-                aria-label="Telemetry Oscilloscope"
-              >
-                <Activity size={12} />
-                <span className="cad-title-btn-label">Telemetry</span>
-              </button>
-              <button
-                className={`cad-title-icon-btn cad-view-btn cad-btn-dynamics ${activeView === 'dynamics' ? 'active' : ''}`}
-                onClick={() => onSelectView('dynamics')}
-                title="System Dynamics & Stage Coupling [Alt+3]"
-                aria-label="System Dynamics & Stage Coupling"
-              >
-                <Sliders size={12} />
-                <span className="cad-title-btn-label">Dynamics</span>
-              </button>
-              <button
-                className={`cad-title-icon-btn cad-view-btn cad-btn-diagnostics ${activeView === 'diagnostics' ? 'active' : ''}`}
-                onClick={() => onSelectView('diagnostics')}
-                title="Diagnostics & Rework Directives [Alt+4]"
-                aria-label="Diagnostics & Rework Directives"
-              >
-                <ShieldAlert size={12} />
-                <span className="cad-title-btn-label">Diagnostics</span>
-              </button>
-            </div>
-
             {onZoomIn && onZoomOut && onZoomReset && (
               <>
                 <span className="cad-title-toolbar-sep"></span>
@@ -304,9 +261,8 @@ export const CadTopMenuBar: React.FC<CadTopMenuBarProps> = ({
                 <span className="cad-breadcrumb-arrow">›</span>
                 <span className="cad-breadcrumb-view">
                   {activeView === 'datasheet' && 'Data Sheet & Verification Matrix'}
-                  {activeView === 'telemetry' && (selectedSensor ? `Scope: ${selectedSensor}` : 'Telemetry Oscilloscope')}
-                  {activeView === 'dynamics' && 'System Dynamics & Coupling'}
-                  {activeView === 'diagnostics' && 'Diagnostics & Rework Directives'}
+                  {activeView === 'telemetry' && (selectedSensor ? `Scope: ${selectedSensor}` : 'Telemetry Oscilloscope & Closed-Loop Dynamics')}
+                  {activeView === 'diagnostics' && 'Diagnostics (In Development)'}
                 </span>
               </div>
             </>
@@ -314,22 +270,14 @@ export const CadTopMenuBar: React.FC<CadTopMenuBarProps> = ({
         </div>
 
         <div className="cad-titlebar-right">
-          {onSelectModel && (
-            <CadModelSelector
-              currentModelId={activeModelId}
-              onSelectModel={onSelectModel}
-              detectedModelId={detectedModelId}
-            />
-          )}
           {onToggleTheme && (
             <button
               className="cad-theme-pill-btn"
               onClick={onToggleTheme}
               title={`Switch to ${theme === 'light' ? 'Dark' : 'Light'} Mode`}
-              aria-label="Toggle Theme"
+              aria-label={`Switch to ${theme === 'light' ? 'Dark' : 'Light'} Mode`}
             >
               {theme === 'light' ? <Moon size={12} /> : <Sun size={12} />}
-              <span>{theme === 'light' ? 'Dark' : 'Light'}</span>
             </button>
           )}
           <div className="cad-window-ctrl-buttons">
@@ -408,17 +356,11 @@ export const CadTopMenuBar: React.FC<CadTopMenuBarProps> = ({
                 <span className="cad-dd-check">{activeView === 'telemetry' ? '✓' : ''}</span>
                 <span className="cad-dd-shortcut">Alt+2</span>
               </button>
-              <button className="cad-dropdown-item" onClick={() => executeAction(() => onSelectView('dynamics'))}>
-                <span className="cad-dd-icon"><Sliders size={14} /></span>
-                <span className="cad-dd-label">System Dynamics & Stage Coupling</span>
-                <span className="cad-dd-check">{activeView === 'dynamics' ? '✓' : ''}</span>
-                <span className="cad-dd-shortcut">Alt+3</span>
-              </button>
               <button className="cad-dropdown-item" onClick={() => executeAction(() => onSelectView('diagnostics'))}>
                 <span className="cad-dd-icon"><ShieldAlert size={14} /></span>
-                <span className="cad-dd-label">Diagnostics & Rework Directives</span>
+                <span className="cad-dd-label">Diagnostics (In Development)</span>
                 <span className="cad-dd-check">{activeView === 'diagnostics' ? '✓' : ''}</span>
-                <span className="cad-dd-shortcut">Alt+4</span>
+                <span className="cad-dd-shortcut">Alt+3</span>
               </button>
               <div className="cad-dd-divider"></div>
               <button className="cad-dropdown-item" onClick={() => executeAction(onRunAudit)}>
@@ -533,10 +475,6 @@ export const CadTopMenuBar: React.FC<CadTopMenuBarProps> = ({
                 <span className="cad-dd-icon"><Table size={14} /></span>
                 <span className="cad-dd-label">10-Stage Operating Conditions Matrix</span>
               </button>
-              <button className="cad-dropdown-item" onClick={() => executeAction(() => onSelectView('dynamics'))}>
-                <span className="cad-dd-icon"><Sliders size={14} /></span>
-                <span className="cad-dd-label">Closed-Loop Stage Coupling & System Dynamics</span>
-              </button>
               <button className="cad-dropdown-item" onClick={() => executeAction(() => onSelectView('diagnostics'))}>
                 <span className="cad-dd-icon"><ShieldAlert size={14} /></span>
                 <span className="cad-dd-label">Subsystem Failure Root-Cause Attribution</span>
@@ -621,17 +559,11 @@ export const CadTopMenuBar: React.FC<CadTopMenuBarProps> = ({
                 <span className="cad-dd-check">{activeView === 'telemetry' ? '✓' : ''}</span>
                 <span className="cad-dd-shortcut">Alt+2</span>
               </button>
-              <button className="cad-dropdown-item" onClick={() => executeAction(() => onSelectView('dynamics'))}>
-                <span className="cad-dd-icon"><Sliders size={14} /></span>
-                <span className="cad-dd-label">Switch to: System Dynamics & Stage Coupling</span>
-                <span className="cad-dd-check">{activeView === 'dynamics' ? '✓' : ''}</span>
-                <span className="cad-dd-shortcut">Alt+3</span>
-              </button>
               <button className="cad-dropdown-item" onClick={() => executeAction(() => onSelectView('diagnostics'))}>
                 <span className="cad-dd-icon"><ShieldAlert size={14} /></span>
-                <span className="cad-dd-label">Switch to: Diagnostics & Rework Directives</span>
+                <span className="cad-dd-label">Switch to: Diagnostics (In Development)</span>
                 <span className="cad-dd-check">{activeView === 'diagnostics' ? '✓' : ''}</span>
-                <span className="cad-dd-shortcut">Alt+4</span>
+                <span className="cad-dd-shortcut">Alt+3</span>
               </button>
               <div className="cad-dd-divider"></div>
               <button className="cad-dropdown-item" onClick={() => executeAction(() => {

@@ -1,22 +1,13 @@
 import React from 'react';
 import { EagleEyeDataset } from '../../../types';
-import { StageDynamicsMetrics, formatDelta, extractStageMetrics } from './dynamicsTypes';
-import {
-  Sliders,
-  Activity,
-  Droplets,
-  Gauge,
-  Thermometer,
-  AlertTriangle,
-  CheckCircle2,
-  Cpu
-} from '../../Icons';
+import { StageDynamicsMetrics, extractStageMetrics } from './dynamicsTypes';
+import { Cpu } from '../../Icons';
 
 export interface StageCouplingMatrixProps {
   dataset: EagleEyeDataset;
   activeStageIdx: number;
   onSelectStage: (idx: number) => void;
-  metrics: StageDynamicsMetrics;
+  metrics?: StageDynamicsMetrics;
   selectedSensor?: string | null;
   onSelectSensor?: (sensor: string | null) => void;
 }
@@ -24,153 +15,14 @@ export interface StageCouplingMatrixProps {
 export const StageCouplingMatrix: React.FC<StageCouplingMatrixProps> = ({
   dataset,
   activeStageIdx,
-  onSelectStage,
-  metrics,
-  selectedSensor,
-  onSelectSensor
+  onSelectStage
 }) => {
-  const deltaDp = formatDelta(metrics.deltaDp, 'psi');
-  const deltaPump = formatDelta(metrics.deltaPump, '%');
-  const deltaFlow = formatDelta(metrics.deltaFlow, 'LPM');
-  const deltaSuction = formatDelta(metrics.deltaSuction, 'psi');
-  const deltaDischarge = formatDelta(metrics.deltaDischarge, 'psi');
-  const deltaTemp = formatDelta(metrics.deltaTemp, '°C');
-
   // Pre-calculate 10-stage metrics for table
   const allStageMetrics = dataset.stages.map((_, idx) => extractStageMetrics(dataset, idx));
 
   return (
     <div className="cad-dynamics-matrix-section">
-      {/* 1. Parameter Physical Movement Cards for Active Stage */}
-      <div className="cad-dynamics-card">
-        <div className="cad-dynamics-card-header">
-          <div className="card-title-group">
-            <Sliders size={14} className="text-cyan" />
-            <h4 className="font-bold">Stage {metrics.stageNum} Closed-Loop Parameter Coupling & Response</h4>
-          </div>
-          <span className="card-sub font-mono">Dwell t = {metrics.timeSec}s | Valves Strictly FIXED</span>
-        </div>
-
-        <div className="cad-dynamics-matrix-grid">
-          {/* Commanded DP */}
-          <div className="cad-coupling-node">
-            <div className="coupling-node-header">
-              <Gauge size={13} className="text-purple" />
-              <span className="node-title font-bold">1. Commanded Target DP</span>
-            </div>
-            <div className="coupling-node-body">
-              <div className="node-metric-row">
-                <span className="metric-label">Target Setpoint:</span>
-                <span className="metric-val font-mono font-bold">{metrics.dpSp != null ? `${metrics.dpSp} psi` : 'Dwell Track'}</span>
-              </div>
-              <div className="node-metric-row">
-                <span className="metric-label">Stage Delta (Δ):</span>
-                <span className={`metric-val font-mono font-bold ${deltaDp.direction}`}>{deltaDp.text}</span>
-              </div>
-              <p className="coupling-physics-note">Valves fixed (100% open); commanded via differential pressure setpoints.</p>
-            </div>
-          </div>
-
-          {/* Pump Motor Speeds */}
-          <div className="cad-coupling-node">
-            <div className="coupling-node-header">
-              <Activity size={13} className="text-blue" />
-              <span className="node-title font-bold">2. Pumps P31 & P41 Speed</span>
-            </div>
-            <div className="coupling-node-body">
-              <div className="node-metric-row">
-                <span className="metric-label">PID Speed (Driver):</span>
-                <span className="metric-val font-mono font-bold">{metrics.p31Speed.toFixed(1)}% / {metrics.p41Speed.toFixed(1)}%</span>
-              </div>
-              <div className="node-metric-row">
-                <span className="metric-label">Speed Delta (Δ):</span>
-                <span className={`metric-val font-mono font-bold ${deltaPump.direction}`}>{deltaPump.text}</span>
-              </div>
-              <p className="coupling-physics-note">Internal PID loop commands motor RPM to overcome loop resistance.</p>
-            </div>
-          </div>
-
-          {/* Discharge Pressure */}
-          <div className="cad-coupling-node">
-            <div className="coupling-node-header">
-              <Gauge size={13} className="text-amber" />
-              <span className="node-title font-bold">3. Discharge Head (PT32/42)</span>
-            </div>
-            <div className="coupling-node-body">
-              <div className="node-metric-row">
-                <span className="metric-label">Discharge Pressure:</span>
-                <span className="metric-val font-mono font-bold">{metrics.dischargePressure.toFixed(2)} psi</span>
-              </div>
-              <div className="node-metric-row">
-                <span className="metric-label">Head Delta (Δ):</span>
-                <span className={`metric-val font-mono font-bold ${deltaDischarge.direction}`}>{deltaDischarge.text}</span>
-              </div>
-              <p className="coupling-physics-note">Hydraulic head developed by impellers pushing into server manifold.</p>
-            </div>
-          </div>
-
-          {/* Secondary Flow FT01 */}
-          <div className="cad-coupling-node">
-            <div className="coupling-node-header">
-              <Droplets size={13} className="text-emerald" />
-              <span className="node-title font-bold">4. Secondary Flow (FT01)</span>
-            </div>
-            <div className="coupling-node-body">
-              <div className="node-metric-row">
-                <span className="metric-label">Delivered Flow:</span>
-                <span className="metric-val font-mono font-bold text-emerald">{metrics.flow.toFixed(1)} LPM</span>
-              </div>
-              <div className="node-metric-row">
-                <span className="metric-label">Flow Delta (Δ):</span>
-                <span className={`metric-val font-mono font-bold ${deltaFlow.direction}`}>{deltaFlow.text}</span>
-              </div>
-              <p className="coupling-physics-note">Volumetric delivery response. Trapped air or scaling causes flow lag.</p>
-            </div>
-          </div>
-
-          {/* Suction Drawdown & Cavitation Guard */}
-          <div className="cad-coupling-node">
-            <div className="coupling-node-header">
-              <AlertTriangle size={13} className={metrics.suctionCavitationSafe ? 'text-emerald' : 'text-danger'} />
-              <span className="node-title font-bold">5. Suction Pressure (PT21)</span>
-            </div>
-            <div className="coupling-node-body">
-              <div className="node-metric-row">
-                <span className="metric-label">Suction Drawdown:</span>
-                <span className="metric-val font-mono font-bold">{metrics.suctionPressure.toFixed(2)} psi</span>
-              </div>
-              <div className="node-metric-row">
-                <span className="metric-label">Cavitation Guard (&gt;15 psi):</span>
-                <span className={`metric-val font-bold ${metrics.suctionCavitationSafe ? 'text-emerald' : 'text-danger'}`}>
-                  {metrics.suctionCavitationSafe ? '✓ SAFE BUFFER' : '⚠ CAVITATION RISK'}
-                </span>
-              </div>
-              <p className="coupling-physics-note">Higher motor speed pulls suction lower. Must remain &gt;15.0 psi.</p>
-            </div>
-          </div>
-
-          {/* Temperature Dissipation */}
-          <div className="cad-coupling-node">
-            <div className="coupling-node-header">
-              <Thermometer size={13} className="text-rose" />
-              <span className="node-title font-bold">6. Secondary Temp (TT31)</span>
-            </div>
-            <div className="coupling-node-body">
-              <div className="node-metric-row">
-                <span className="metric-label">Secondary Temp:</span>
-                <span className="metric-val font-mono font-bold">{metrics.secondarySupplyT.toFixed(1)}°C</span>
-              </div>
-              <div className="node-metric-row">
-                <span className="metric-label">Thermal Delta (Δ):</span>
-                <span className={`metric-val font-mono font-bold ${deltaTemp.direction}`}>{deltaTemp.text}</span>
-              </div>
-              <p className="coupling-physics-note">Impeller shear & motor torque under high DP naturally heats coolant.</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* 2. Full 10-Stage Closed-Loop Cross-Coupling Table */}
+      {/* 10-Stage Closed-Loop Cross-Coupling Progression Ledger */}
       <div className="cad-dynamics-card">
         <div className="cad-dynamics-card-header">
           <div className="card-title-group">

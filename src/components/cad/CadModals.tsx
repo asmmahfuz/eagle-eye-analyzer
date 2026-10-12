@@ -74,16 +74,11 @@ export const CadShortcutsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
               </tr>
               <tr>
                 <td><kbd>Alt</kbd> + <kbd>2</kbd></td>
-                <td>Switch to Telemetry Oscilloscope</td>
+                <td>Switch to Telemetry Oscilloscope & Dynamics Mimic</td>
                 <td>View</td>
               </tr>
               <tr>
                 <td><kbd>Alt</kbd> + <kbd>3</kbd></td>
-                <td>Switch to System Dynamics & Stage Coupling</td>
-                <td>View</td>
-              </tr>
-              <tr>
-                <td><kbd>Alt</kbd> + <kbd>4</kbd></td>
                 <td>Switch to Diagnostics & Rework Directives</td>
                 <td>View</td>
               </tr>

@@ -385,6 +385,13 @@ export const App: React.FC = () => {
     setSelectedSensor(null);
   };
 
+  const handleSelectView = (view: CadMainView) => {
+    if (maximizedWindow === 'right') {
+      setMaximizedWindow('none');
+    }
+    setActiveView(view);
+  };
+
   const handleResetView = () => {
     setZoomLevel(1.0);
     setShowLeftDock(true);
@@ -452,7 +459,7 @@ export const App: React.FC = () => {
         setActiveView('telemetry');
       } else if (e.altKey && e.key === '3') {
         e.preventDefault();
-        setActiveView('dynamics');
+        setActiveView('diagnostics');
       } else if (e.altKey && e.key === '4') {
         e.preventDefault();
         setActiveView('diagnostics');
@@ -612,6 +619,7 @@ export const App: React.FC = () => {
             onSelectSensor={handleSelectSensor}
             selectedSubsystem={selectedSubsystem}
             onSelectSubsystem={handleSelectSubsystem}
+            onSelectView={handleSelectView}
             activeModelId={activeModelId}
             onClose={() => { setMaximizedWindow('none'); setShowRightDock(false); }}
             showModbusOverlays={showModbusOverlays}
@@ -798,6 +806,7 @@ export const App: React.FC = () => {
                 onSelectSensor={handleSelectSensor}
                 selectedSubsystem={selectedSubsystem}
                 onSelectSubsystem={handleSelectSubsystem}
+                onSelectView={handleSelectView}
                 activeModelId={activeModelId}
                 onClose={() => setShowRightDock(false)}
                 showModbusOverlays={showModbusOverlays}
